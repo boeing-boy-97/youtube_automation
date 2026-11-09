@@ -91,7 +91,7 @@ export function ProgressBar({ value, tone = 'accent' }: { value: number; tone?: 
   );
 }
 
-export function StatCard({ label, value, hint, tone }: { label: string; value: string | number; hint?: string; tone?: 'default' | 'danger' | 'positive' }) {
+export function StatCard({ label, value, hint, tone }: { label: string; value: string | number; hint?: string; tone?: 'default' | 'danger' | 'positive' | 'caution' }) {
   return (
     <Card className="px-5 py-4">
       <p className="text-[13px] font-medium text-ink-soft">{label}</p>
@@ -100,6 +100,7 @@ export function StatCard({ label, value, hint, tone }: { label: string; value: s
           'text-ink': !tone || tone === 'default',
           'text-danger': tone === 'danger',
           'text-positive': tone === 'positive',
+          'text-caution': tone === 'caution',
         })}
       >
         {value}

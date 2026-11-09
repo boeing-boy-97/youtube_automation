@@ -23,11 +23,29 @@ export default function AdminPage() {
     <div className="space-y-5">
       <Section title="System administration" description="Read-only operational view. Values are measured live from the database, Redis and the internal services." />
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <StatCard label="API uptime" value={`${Math.floor(data.uptimeSeconds / 60)}m`} hint={`Since last restart · ${data.timezone}`} />
         <StatCard label="Workers alive" value={data.workers.filter((worker) => worker.alive).length} hint={`${data.workers.length} registered`} tone={data.workers.some((worker) => !worker.alive) ? 'danger' : 'positive'} />
         <StatCard label="Queue failures" value={Object.values(data.queues).reduce((sum, queue) => sum + queue.failed, 0)} hint="Across all queues" />
-        <StatCard label="Overall readiness" value={data.readiness.ready ? 'Ready' : 'Blocked'} tone={data.readiness.ready ? 'positive' : 'danger'} hint={data.readiness.processingReady ? 'Processing configured' : 'Processing not configured'} />
+            <StatCard
+          label="Services"
+          value={data.readiness.ready ? 'Reachable' : 'Blocked'}
+          tone={data.readiness.ready ? 'positive' : 'danger'}
+          hint="PostgreSQL, Redis and storage"
+        />
+        <StatCard
+          label="Processing chain"
+          value={data.readiness.processingReady ? 'Ready' : 'Incomplete'}
+          tone={data.readiness.processingReady ? 'positive' : 'caution'}
+          hint={
+            data.readiness.processingReady
+              ? 'AI engine, video processor and AI provider all healthy'
+              : `Blocked by: ${components
+                  .filter((component) => ['ai', 'vp', 'gemini'].includes(component.component) && component.status !== 'healthy')
+                  .map((component) => component.component)
+                  .join(', ') || 'unknown'}`
+          }
+        />
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
@@ -93,7 +111,7 @@ export default function AdminPage() {
           <p className="px-5 py-6 text-sm text-ink-soft">No health events recorded.</p>
         ) : (
           <ul className="divide-y divide-line">
-            {data.healthEvents.map((event) => (
+            {data.healthEvents.slice(0, 12).map((event) => (
               <li key={event.id} className="flex items-center justify-between gap-3 px-5 py-2.5">
                 <div>
                   <p className="text-[13px] font-medium text-ink">{event.component} · {event.severity}</p>
