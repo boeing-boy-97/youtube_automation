@@ -1,0 +1,844 @@
+// ===========================================================================
+// ClipForge AI — PostgreSQL schema (Prisma)
+// Tenant model: Workspace is the tenant boundary. Every business row carries
+// workspaceId and every query is scoped by it in the repository layer.
+// ===========================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------- enums --------------------------------------
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum Platform {
+  YOUTUBE
+  INSTAGRAM
+}
+
+enum ConnectedAccountStatus {
+  PENDING
+  CONNECTED
+  EXPIRED
+  REVOKED
+  ERROR
+}
+
+enum TokenHealth {
+  UNKNOWN
+  VALID
+  EXPIRING_SOON
+  EXPIRED
+  INVALID
+}
+
+enum SourceKind {
+  UPLOAD
+  DIRECT_URL
+  STORAGE_PROVIDER
+}
+
+enum SourceStatus {
+  INITIATED
+  UPLOADED
+  VALIDATED
+  REJECTED
+  ARCHIVED
+}
+
+enum MediaAssetKind {
+  SOURCE_VIDEO
+  EXTRACTED_AUDIO
+  FRAME
+  RENDERED_CLIP
+  THUMBNAIL
+  SUBTITLE
+  OTHER
+}
+
+enum JobStatus {
+  CREATED
+  UPLOADING
+  QUEUED
+  PROBING
+  TRANSCRIBING
+  AI_ANALYSIS
+  CLIP_SELECTION
+  RENDERING
+  VALIDATION
+  ASSET_STORAGE
+  PUBLISHING_QUEUED
+  PUBLISHING
+  COMPLETED
+  PARTIALLY_COMPLETED
+  FAILED
+  CANCELLED
+  NEEDS_CONFIGURATION
+  RETRYING
+}
+
+enum JobStageStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+  SKIPPED
+  CANCELLED
+}
+
+enum CandidateStatus {
+  PROPOSED
+  ACCEPTED
+  REJECTED
+  RENDERED
+  PUBLISHED
+}
+
+enum ClipStatus {
+  PLANNED
+  RENDERING
+  RENDER_FAILED
+  READY
+  PUBLISHING
+  PUBLISHED
+  PARTIALLY_PUBLISHED
+  PUBLISH_FAILED
+}
+
+enum PublishingStatus {
+  PENDING
+  ELIGIBILITY_CHECK
+  QUEUED
+  UPLOADING
+  AWAITING_PLATFORM
+  PUBLISHED
+  FAILED
+  SKIPPED
+  CANCELLED
+}
+
+enum PublishingOperation {
+  SINGLE_VIDEO_UPLOAD
+  REEL_PUBLISH
+  CONTAINER_STATUS_CHECK
+  NONE
+}
+
+enum AuditAction {
+  AUTH_LOGIN
+  AUTH_LOGOUT
+  AUTH_BOOTSTRAP
+  USER_CREATED
+  ACCOUNT_CONNECTED
+  ACCOUNT_DISCONNECTED
+  ACCOUNT_TOKEN_REFRESHED
+  SOURCE_UPLOADED
+  JOB_CREATED
+  JOB_CANCELLED
+  JOB_RETRIED
+  JOB_STAGE_CHANGED
+  CLIP_RENDERED
+  CLIP_METADATA_EDITED
+  PUBLISHING_ENABLED
+  PUBLISHING_DISABLED
+  PUBLISH_ATTEMPTED
+  PUBLISH_SUCCEEDED
+  PUBLISH_FAILED
+  CONFIG_CHANGED
+  RIGHTS_DECLARED
+}
+
+enum Visibility {
+  PUBLIC
+  UNLISTED
+  PRIVATE
+}
+
+enum WebhookStatus {
+  RECEIVED
+  PROCESSED
+  FAILED
+  IGNORED
+}
+
+enum HealthSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+// ----------------------------- identity -----------------------------------
+
+model User {
+  id            String     @id @default(uuid()) @db.Uuid
+  email         String     @unique
+  passwordHash  String
+  displayName   String
+  role          UserRole   @default(OWNER)
+  status        UserStatus @default(ACTIVE)
+  emailVerified Boolean    @default(false)
+  lastLoginAt   DateTime?
+  failedLoginAttempts Int  @default(0)
+  lockedUntil   DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  deletedAt     DateTime?
+
+  memberships WorkspaceMember[]
+  sessions    Session[]
+  auditLogs   AuditLog[]
+
+  @@index([status])
+}
+
+model Workspace {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String   @unique
+  timezone  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  members          WorkspaceMember[]
+  brandProfiles    BrandProfile[]
+  subtitlePresets  SubtitlePreset[]
+  sources          SourceVideo[]
+  mediaAssets      MediaAsset[]
+  jobs             ProcessingJob[]
+  transcripts      Transcript[]
+  candidates       HighlightCandidate[]
+  clips            GeneratedClip[]
+  accounts         ConnectedAccount[]
+  publishingJobs   PublishingJob[]
+  publishedPosts   PublishedPost[]
+  storageObjects   StorageObject[]
+  usageRecords     UsageRecord[]
+  auditLogs        AuditLog[]
+  configurations   ApplicationConfiguration[]
+  webhookEvents    WebhookEvent[]
+  healthEvents     SystemHealthEvent[]
+}
+
+model WorkspaceMember {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @db.Uuid
+  userId      String   @db.Uuid
+  role        UserRole @default(MEMBER)
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+}
+
+model Session {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  tokenHash  String   @unique          // sha256(HMAC(session_secret, raw token))
+  csrfHash   String                     // sha256 of the CSRF double-submit token
+  userAgent  String?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ------------------------- connected accounts -----------------------------
+
+model ConnectedAccount {
+  id                  String                 @id @default(uuid()) @db.Uuid
+  workspaceId         String                 @db.Uuid
+  platform            Platform
+  externalAccountId   String                 // YouTube channel id / IG professional account id
+  displayName         String
+  username            String?
+  avatarUrl           String?
+  status              ConnectedAccountStatus @default(PENDING)
+  scopes              String[]               @default([])
+  tokenHealth         TokenHealth            @default(UNKNOWN)
+  tokenCheckedAt      DateTime?
+  lastError           String?
+  publishingEnabled   Boolean                @default(false)
+  publishingConfig    Json?                  // explicit user configuration (privacy, schedule, flags)
+  connectedAt         DateTime?
+  disconnectedAt      DateTime?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  workspace       Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  credential      OAuthCredential?
+  publishingJobs  PublishingJob[]
+  publishedPosts  PublishedPost[]
+
+  @@unique([workspaceId, platform, externalAccountId])
+  @@index([workspaceId, platform])
+}
+
+model OAuthCredential {
+  id                String   @id @default(uuid()) @db.Uuid
+  connectedAccountId String  @unique @db.Uuid
+  // AES-256-GCM envelope: {v, iv, tag, ciphertext} — never decrypted client-side.
+  accessTokenEnc    Json
+  refreshTokenEnc   Json?
+  tokenType         String   @default("Bearer")
+  scope             String?
+  expiresAt         DateTime?
+  refreshedAt       DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  connectedAccount ConnectedAccount @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
+}
+
+// ------------------------------ sources -----------------------------------
+
+model SourceVideo {
+  id                String       @id @default(uuid()) @db.Uuid
+  workspaceId       String       @db.Uuid
+  createdById       String       @db.Uuid
+  kind              SourceKind
+  status            SourceStatus @default(INITIATED)
+  originalFileName  String?
+  declaredMimeType  String?
+  detectedMimeType  String?
+  sizeBytes         BigInt?
+  storageKey        String?      // object key in the configured storage driver
+  sourceUrl         String?      // direct URL import or YouTube reference URL
+  youTubeReferenceId String?
+  youTubeReferenceUrl String?
+  rightsDeclaration Json?        // {accepted, acceptedAt, acceptedByUserId, statement, version}
+  probeResult       Json?        // ffprobe output (duration, streams, codecs…)
+  durationSeconds   Float?
+  width             Int?
+  height            Int?
+  frameRate         Float?
+  validationReport  Json?
+  rejectionReason   String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  deletedAt         DateTime?
+
+  workspace  Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  jobs       ProcessingJob[]
+  assets     MediaAsset[]
+  transcripts Transcript[]
+
+  @@index([workspaceId, status])
+}
+
+model MediaAsset {
+  id            String         @id @default(uuid()) @db.Uuid
+  workspaceId   String         @db.Uuid
+  sourceVideoId String?        @db.Uuid
+  kind          MediaAssetKind
+  storageKey    String
+  mimeType      String
+  sizeBytes     BigInt
+  checksumSha256 String?
+  durationSeconds Float?
+  metadata      Json?
+  createdAt     DateTime       @default(now())
+  deletedAt     DateTime?
+
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sourceVideo SourceVideo? @relation(fields: [sourceVideoId], references: [id], onDelete: SetNull)
+  clipVariants ClipVariant[]
+
+  @@index([workspaceId, kind])
+  @@index([sourceVideoId])
+}
+
+model StorageObject {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @db.Uuid
+  driver      String   // "s3" | "local"
+  bucket      String?
+  key         String
+  sizeBytes   BigInt
+  contentType String?
+  checksum    String?
+  expiresAt   DateTime? // for temporary publishing assets fetched by Meta
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([driver, bucket, key])
+  @@index([workspaceId])
+}
+
+// ---------------------------- processing ----------------------------------
+
+model ProcessingJob {
+  id              String    @id @default(uuid()) @db.Uuid
+  workspaceId     String    @db.Uuid
+  sourceVideoId   String    @db.Uuid
+  createdById     String    @db.Uuid
+  status          JobStatus @default(CREATED)
+  stage           JobStatus @default(CREATED)
+  progressPercent Int       @default(0)
+  progressDetail  String?
+  attempt         Int       @default(0)
+  maxAttempts     Int       @default(3)
+  workerId        String?
+  leaseExpiresAt  DateTime?
+  heartbeatAt     DateTime?
+  configuration   Json      // explicit processing configuration captured at submit time
+  errorCode       String?
+  errorMessage    String?
+  errorDetails    Json?
+  resultSummary   Json?
+  estimatedCompletionAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  startedAt       DateTime?
+  completedAt     DateTime?
+
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sourceVideo SourceVideo    @relation(fields: [sourceVideoId], references: [id], onDelete: Restrict)
+  stages      JobStage[]
+  candidates  HighlightCandidate[]
+  clips       GeneratedClip[]
+  transcripts Transcript[]
+  usage       UsageRecord[]
+
+  @@index([workspaceId, status])
+  @@index([status, leaseExpiresAt])
+  @@index([sourceVideoId])
+}
+
+model JobStage {
+  id             String         @id @default(uuid()) @db.Uuid
+  jobId          String         @db.Uuid
+  stage          JobStatus
+  status         JobStageStatus @default(PENDING)
+  attempt        Int            @default(0)
+  progressPercent Int           @default(0)
+  input          Json?
+  output         Json?
+  errorCode      String?
+  errorMessage   String?
+  workerId       String?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  durationMs     Int?
+  createdAt      DateTime       @default(now())
+
+  job ProcessingJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, stage])
+  @@index([jobId, createdAt])
+}
+
+model Transcript {
+  id            String   @id @default(uuid()) @db.Uuid
+  workspaceId   String   @db.Uuid
+  sourceVideoId String   @db.Uuid
+  jobId         String?  @db.Uuid
+  language      String
+  languageProbability Float
+  provider      String   // "faster-whisper" etc.
+  model         String
+  wordTimestamps Boolean @default(true)
+  durationSeconds Float?
+  fullText      String
+  storageKey    String?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sourceVideo SourceVideo        @relation(fields: [sourceVideoId], references: [id], onDelete: Cascade)
+  job         ProcessingJob?     @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  segments    TranscriptSegment[]
+
+  @@index([workspaceId, sourceVideoId])
+}
+
+model TranscriptSegment {
+  id           String   @id @default(uuid()) @db.Uuid
+  transcriptId String   @db.Uuid
+  sequence     Int
+  startSeconds Float
+  endSeconds   Float
+  text         String
+  speakerLabel String?
+  avgLogprob   Float?
+  noSpeechProb Float?
+  words        Json     // [{word,start,end,probability}]
+  createdAt    DateTime @default(now())
+
+  transcript Transcript @relation(fields: [transcriptId], references: [id], onDelete: Cascade)
+
+  @@unique([transcriptId, sequence])
+  @@index([transcriptId, startSeconds])
+}
+
+model HighlightCandidate {
+  id              String          @id @default(uuid()) @db.Uuid
+  workspaceId     String          @db.Uuid
+  jobId           String          @db.Uuid
+  transcriptId    String?         @db.Uuid
+  startSeconds    Float
+  endSeconds      Float
+  targetDuration  Int             // 15 or 30 — the duration the model proposed
+  hook            String
+  reason          String
+  transcriptText  String
+  contentCategory String
+  qualityScore    Int
+  confidence      Float
+  visualContext   String?
+  scores          Json            // rubric breakdown
+  status          CandidateStatus @default(PROPOSED)
+  rejectionReason String?
+  modelMetadata   Json?
+  createdAt       DateTime        @default(now())
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  job       ProcessingJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  clips GeneratedClip[]
+
+  @@index([workspaceId, jobId])
+  @@index([jobId, status])
+}
+
+model GeneratedClip {
+  id              String     @id @default(uuid()) @db.Uuid
+  workspaceId     String     @db.Uuid
+  jobId           String     @db.Uuid
+  candidateId     String?    @db.Uuid
+  title           String
+  contentCategory String
+  qualityScore    Int
+  status          ClipStatus @default(PLANNED)
+  startSeconds    Float
+  endSeconds      Float
+  durationKind    Int        // 15 | 30
+  duplicateOfClipId String?  @db.Uuid
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  job       ProcessingJob      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  candidate HighlightCandidate? @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+  variants  ClipVariant[]
+  metadata  ClipMetadata[]
+  publishingJobs PublishingJob[]
+
+  @@index([workspaceId, status])
+  @@index([jobId, durationKind])
+}
+
+model ClipVariant {
+  id             String   @id @default(uuid()) @db.Uuid
+  clipId         String   @db.Uuid
+  mediaAssetId   String?  @db.Uuid
+  subtitleAssetId String? @db.Uuid
+  width          Int
+  height         Int
+  fps            Int
+  videoCodec     String
+  audioCodec     String
+  bitrateKbps    Int?
+  container      String   @default("mp4")
+  sizeBytes      BigInt?
+  durationSeconds Float?
+  renderProfile  Json     // framing mode, subtitle style, loudness target…
+  renderReport   Json?
+  checksumSha256 String?
+  createdAt      DateTime @default(now())
+
+  clip      GeneratedClip @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  mediaAsset MediaAsset?  @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
+  publishingJobs PublishingJob[]
+
+  @@index([clipId])
+}
+
+model ClipMetadata {
+  id         String   @id @default(uuid()) @db.Uuid
+  clipId     String   @db.Uuid
+  platform   Platform
+  title      String?
+  description String?
+  hashtags   String[] @default([])
+  tags       String[] @default([])
+  language   String
+  brandVoice String?
+  model      String
+  reviewStatus String @default("DRAFT") // DRAFT | APPROVED
+  generatedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  clip GeneratedClip @relation(fields: [clipId], references: [id], onDelete: Cascade)
+
+  @@unique([clipId, platform])
+}
+
+// ---------------------------- publishing ----------------------------------
+
+model PublishingJob {
+  id                 String            @id @default(uuid()) @db.Uuid
+  workspaceId        String            @db.Uuid
+  clipId             String            @db.Uuid
+  clipVariantId      String?           @db.Uuid
+  connectedAccountId String            @db.Uuid
+  platform           Platform
+  operation          PublishingOperation @default(NONE)
+  status             PublishingStatus  @default(PENDING)
+  idempotencyKey     String            @unique   // clipId:platform:accountId:operation
+  scheduledFor       DateTime?
+  attempt            Int               @default(0)
+  maxAttempts        Int               @default(5)
+  nextAttemptAt      DateTime?
+  priority           Int               @default(0)
+  visibility         Visibility?
+  platformMetadata   Json?
+  externalId         String?           // YouTube video id / IG media id once known
+  externalUrl        String?
+  errorCode          String?
+  errorMessage       String?
+  retryable          Boolean?
+  workerId           String?
+  leaseExpiresAt     DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  completedAt        DateTime?
+
+  workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  clip             GeneratedClip    @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  clipVariant      ClipVariant?     @relation(fields: [clipVariantId], references: [id], onDelete: SetNull)
+  connectedAccount ConnectedAccount @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
+  attempts         PublishingAttempt[]
+
+  @@index([workspaceId, status])
+  @@index([status, nextAttemptAt])
+  @@index([clipId, platform])
+}
+
+model PublishingAttempt {
+  id              String   @id @default(uuid()) @db.Uuid
+  publishingJobId String   @db.Uuid
+  attemptNumber   Int
+  operation       PublishingOperation
+  requestSummary  Json
+  httpStatus      Int?
+  responseSummary Json?
+  errorCode       String?
+  errorMessage    String?
+  retryable       Boolean?
+  startedAt       DateTime @default(now())
+  finishedAt      DateTime?
+  durationMs      Int?
+  workerId        String?
+
+  publishingJob PublishingJob @relation(fields: [publishingJobId], references: [id], onDelete: Cascade)
+
+  @@unique([publishingJobId, attemptNumber, operation])
+  @@index([publishingJobId])
+}
+
+model PublishedPost {
+  id                 String   @id @default(uuid()) @db.Uuid
+  workspaceId        String   @db.Uuid
+  publishingJobId    String?  @db.Uuid
+  connectedAccountId String   @db.Uuid
+  platform           Platform
+  externalId         String
+  externalUrl        String?
+  publishedAt        DateTime
+  visibility         Visibility?
+  platformResponse   Json?
+  createdAt          DateTime @default(now())
+
+  workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  connectedAccount ConnectedAccount @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([platform, connectedAccountId, externalId])
+  @@index([workspaceId, platform])
+}
+
+// ---------------------------- configuration -------------------------------
+
+model BrandProfile {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @db.Uuid
+  name        String
+  isDefault   Boolean  @default(false)
+  primaryColor String?
+  secondaryColor String?
+  textColor   String?
+  logoStorageKey String?
+  fontFamily  String?
+  brandVoice  String?  // professional | educational | motivational | conversational | entertaining | custom
+  customVoiceInstructions String?
+  audienceDescription String?
+  introEnabled Boolean @default(false)
+  outroEnabled Boolean @default(false)
+  introAssetKey String?
+  outroAssetKey String?
+  watermarkPosition String? // top-left | top-right | bottom-left | bottom-right
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  clips     GeneratedClipMetadataLink[]
+
+  @@index([workspaceId])
+}
+
+// Explicit join so clip metadata can record which brand profile produced it.
+model GeneratedClipMetadataLink {
+  id        String @id @default(uuid()) @db.Uuid
+  clipId    String @db.Uuid
+  brandProfileId String @db.Uuid
+  createdAt DateTime @default(now())
+
+  brandProfile BrandProfile @relation(fields: [brandProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([clipId, brandProfileId])
+}
+
+model SubtitlePreset {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String?  @db.Uuid
+  name        String
+  isSystem    Boolean  @default(false)
+  style       Json     // fontFamily, fontSizePx, weight, colors, outline, shadow, position, safeMargins, highlightStyle
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, name])
+}
+
+model ApplicationConfiguration {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String?  @db.Uuid
+  key         String
+  value       Json
+  updatedById String?  @db.Uuid
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, key])
+  @@index([key])
+}
+
+model UsageRecord {
+  id              String   @id @default(uuid()) @db.Uuid
+  workspaceId     String   @db.Uuid
+  jobId           String?  @db.Uuid
+  kind            String   // transcription_seconds | gemini_tokens | render_seconds | storage_bytes | publish_calls
+  quantity        Float
+  unit            String
+  costUsd         Float?
+  metadata        Json?
+  recordedAt      DateTime @default(now())
+
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  job       ProcessingJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, kind, recordedAt])
+}
+
+model AuditLog {
+  id          String      @id @default(uuid()) @db.Uuid
+  workspaceId String?     @db.Uuid
+  userId      String?     @db.Uuid
+  action      AuditAction
+  targetType  String?
+  targetId    String?
+  summary     String
+  metadata    Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime    @default(now())
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([action, createdAt])
+}
+
+model WebhookEvent {
+  id          String        @id @default(uuid()) @db.Uuid
+  workspaceId String?       @db.Uuid
+  platform    Platform?
+  eventType   String
+  externalId  String?
+  payload     Json
+  signature   String?
+  status      WebhookStatus @default(RECEIVED)
+  error       String?
+  receivedAt  DateTime      @default(now())
+  processedAt DateTime?
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([platform, externalId, eventType])
+  @@index([status, receivedAt])
+}
+
+model SystemHealthEvent {
+  id          String         @id @default(uuid()) @db.Uuid
+  workspaceId String?        @db.Uuid
+  component   String         // api | worker:ai | worker:render | postgres | redis | storage | gemini | youtube | instagram
+  severity    HealthSeverity
+  status      String         // healthy | degraded | down
+  message     String
+  details     Json?
+  observedAt  DateTime       @default(now())
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([component, observedAt])
+}
+
+// ------------------------- transactional outbox ---------------------------
+// Written in the same transaction as the business state change, drained by a
+// relay into BullMQ. Guarantees a committed job cannot vanish between DB & queue.
+model OutboxEvent {
+  id            String    @id @default(uuid()) @db.Uuid
+  aggregateType String
+  aggregateId   String
+  eventType     String
+  queue         String
+  payload       Json
+  availableAt   DateTime  @default(now())
+  publishedAt   DateTime?
+  attempts      Int       @default(0)
+  lastError     String?
+  createdAt     DateTime  @default(now())
+
+  @@index([publishedAt, availableAt])
+}

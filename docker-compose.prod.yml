@@ -1,0 +1,218 @@
+# Production stack: built images, Caddy TLS front door, scheduled PostgreSQL backups.
+# Only Caddy publishes ports; the database, Redis and app services stay internal.
+x-api-env: &api-env
+  NODE_ENV: production
+  APP_URL: ${APP_URL:?set APP_URL to the public https origin}
+  API_INTERNAL_URL: http://api:4000
+  ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?set ALLOWED_ORIGINS to the public https origin}
+  TIMEZONE: ${TIMEZONE:?set TIMEZONE explicitly}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  DATABASE_URL: postgresql://${POSTGRES_USER:-clipforge}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-clipforge}
+  REDIS_URL: redis://redis:6379
+  REDIS_PREFIX: ${REDIS_PREFIX:-clipforge}
+  SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET}
+  CSRF_SECRET: ${CSRF_SECRET:?set CSRF_SECRET}
+  CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?set CREDENTIAL_ENCRYPTION_KEY}
+  ADMIN_BOOTSTRAP_TOKEN: ${ADMIN_BOOTSTRAP_TOKEN:?set ADMIN_BOOTSTRAP_TOKEN}
+  STORAGE_DRIVER: ${STORAGE_DRIVER:?set STORAGE_DRIVER explicitly (local or s3)}
+  STORAGE_LOCAL_ROOT: /data/storage
+  STORAGE_PUBLIC_BASE_URL: ${STORAGE_PUBLIC_BASE_URL:?set STORAGE_PUBLIC_BASE_URL (public HTTPS base for Meta to fetch reels)}
+  S3_ENDPOINT: ${S3_ENDPOINT:-}
+  S3_REGION: ${S3_REGION:-}
+  S3_BUCKET: ${S3_BUCKET:-}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+  S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+  BACKUP_DIR: /backups
+  AI_ENGINE_URL: http://ai-engine:8100
+  AI_ENGINE_API_KEY: ${AI_ENGINE_API_KEY:?set AI_ENGINE_API_KEY}
+  VIDEO_PROCESSOR_URL: http://video-processor:8200
+  VIDEO_PROCESSOR_API_KEY: ${VIDEO_PROCESSOR_API_KEY:?set VIDEO_PROCESSOR_API_KEY}
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  GEMINI_TEXT_MODEL: ${GEMINI_TEXT_MODEL:-}
+  GEMINI_VISION_MODEL: ${GEMINI_VISION_MODEL:-}
+  YOUTUBE_CLIENT_ID: ${YOUTUBE_CLIENT_ID:-}
+  YOUTUBE_CLIENT_SECRET: ${YOUTUBE_CLIENT_SECRET:-}
+  YOUTUBE_REDIRECT_URI: ${YOUTUBE_REDIRECT_URI:-}
+  META_APP_ID: ${META_APP_ID:-}
+  META_APP_SECRET: ${META_APP_SECRET:-}
+  META_REDIRECT_URI: ${META_REDIRECT_URI:-}
+  META_GRAPH_API_VERSION: ${META_GRAPH_API_VERSION:-}
+
+services:
+  postgres:
+    image: postgres:17.11-bookworm
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-clipforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-clipforge}
+      TZ: ${TIMEZONE:?set TIMEZONE explicitly}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infrastructure/scripts/backups:/backups
+    expose: ['5432']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-clipforge} -d ${POSTGRES_DB:-clipforge}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7.4.2-bookworm
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory-policy', 'noeviction']
+    volumes: ['redis-data:/data']
+    expose: ['6379']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    command: ['node', 'apps/api/dist/main.js']
+    environment:
+      <<: *api-env
+      RUN_MIGRATIONS: '1'
+      PORT: '4000'
+    volumes:
+      - storage-data:/data/storage
+    expose: ['4000']
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    logging:
+      driver: json-file
+      options: { max-size: '20m', max-file: '5' }
+    restart: unless-stopped
+
+  worker-ai:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    command: ['node', 'apps/api/dist/workers/pipeline.worker.js']
+    environment: *api-env
+    volumes: ['storage-data:/data/storage']
+    depends_on: [api, redis]
+    restart: unless-stopped
+
+  worker-render:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    command: ['node', 'apps/api/dist/workers/render.worker.js']
+    environment: *api-env
+    volumes: ['storage-data:/data/storage']
+    depends_on: [api, redis]
+    restart: unless-stopped
+
+  worker-publish:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    command: ['node', 'apps/api/dist/workers/publish.worker.js']
+    environment: *api-env
+    volumes: ['storage-data:/data/storage']
+    depends_on: [api, redis]
+    restart: unless-stopped
+
+  worker-scheduler:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    command: ['node', 'apps/api/dist/workers/scheduler.worker.js']
+    environment: *api-env
+    depends_on: [api, redis]
+    restart: unless-stopped
+
+  worker-recovery:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    command: ['node', 'apps/api/dist/workers/recovery.worker.js']
+    environment: *api-env
+    depends_on: [api, redis]
+    restart: unless-stopped
+
+  ai-engine:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/ai-engine.Dockerfile
+    environment:
+      AI_ENGINE_API_KEY: ${AI_ENGINE_API_KEY:?set AI_ENGINE_API_KEY}
+      AI_PROVIDER: ${AI_PROVIDER:?set AI_PROVIDER explicitly (gemini or fixture for tests)}
+      TEST_MODE: ${TEST_MODE:-0}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_TEXT_MODEL: ${GEMINI_TEXT_MODEL:-}
+      GEMINI_VISION_MODEL: ${GEMINI_VISION_MODEL:-}
+      WHISPER_MODEL: ${WHISPER_MODEL:?set WHISPER_MODEL explicitly}
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-cpu}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
+    volumes: ['model-cache:/home/app/.cache/huggingface']
+    expose: ['8100']
+    restart: unless-stopped
+
+  video-processor:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/video-processor.Dockerfile
+    environment:
+      VIDEO_PROCESSOR_API_KEY: ${VIDEO_PROCESSOR_API_KEY:?set VIDEO_PROCESSOR_API_KEY}
+      WORK_DIR: /data/work
+    volumes:
+      - storage-data:/data/storage
+      - work-data:/data/work
+    expose: ['8200']
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.Dockerfile
+      args: { API_INTERNAL_URL: 'http://api:4000' }
+    environment:
+      NODE_ENV: production
+      API_INTERNAL_URL: http://api:4000
+    expose: ['3000']
+    depends_on: [api]
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.8.4-alpine
+    depends_on: [web, api]
+    environment:
+      CLIPFORGE_DOMAIN: ${CLIPFORGE_DOMAIN:?set CLIPFORGE_DOMAIN (public hostname)}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL for certificate expiry notices}
+    ports: ['80:80', '443:443', '443:443/udp']
+    volumes:
+      - ./infrastructure/deployment/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+
+  backup:
+    image: postgres:17.11-bookworm
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-clipforge}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB:-clipforge}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    entrypoint: ['/bin/sh', '/scripts/backup-loop.sh']
+    volumes:
+      - ./infrastructure/scripts:/scripts:ro
+      - ./infrastructure/scripts/backups:/backups
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
+  caddy-config:
+  postgres-data:
+  redis-data:
+  storage-data:
+  work-data:
+  model-cache:

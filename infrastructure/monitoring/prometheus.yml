@@ -1,0 +1,34 @@
+# Scrape configuration for the metrics already exposed by the API (/api/system/health)
+# and the two Python services (/health). Prometheus is optional: the dashboard's
+# System administration page reads the same probes directly, so monitoring works
+# without this stack.
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+rule_files:
+  - alerts.yml
+
+scrape_configs:
+  - job_name: clipforge-api
+    metrics_path: /api/system/health
+    static_configs:
+      - targets: ['api:4000']
+
+  - job_name: clipforge-ai-engine
+    metrics_path: /health
+    static_configs:
+      - targets: ['ai-engine:8100']
+
+  - job_name: clipforge-video-processor
+    metrics_path: /health
+    static_configs:
+      - targets: ['video-processor:8200']
+
+  - job_name: postgres
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+
+  - job_name: redis
+    static_configs:
+      - targets: ['redis-exporter:9121']

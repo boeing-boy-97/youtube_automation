@@ -1,0 +1,47 @@
+# Public front door. Terminates TLS (automatic ACME), proxies the dashboard and the API
+# on the same origin so session cookies stay first-party.
+{
+	email {$ACME_EMAIL}
+	servers {
+		protocols h1 h2
+	}
+}
+
+{$CLIPFORGE_DOMAIN} {
+	encode zstd gzip
+
+	# Security headers. HSTS is only meaningful over TLS, which is always the case here.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# Upload parts can be large; 512MB covers the default configured file ceiling margin.
+	request_body {
+		max_size 512MB
+	}
+
+	# The API is reachable from the browser under /api and /media only.
+	handle /api/* {
+		reverse_proxy api:4000
+	}
+	handle /media/* {
+		reverse_proxy api:4000
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 50MiB
+			roll_keep 10
+		}
+		format json
+	}
+}

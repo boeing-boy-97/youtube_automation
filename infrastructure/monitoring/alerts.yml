@@ -1,0 +1,38 @@
+groups:
+  - name: clipforge-availability
+    rules:
+      - alert: ApiDown
+        expr: up{job="clipforge-api"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: ClipForge API is unreachable
+          description: The API health endpoint has been failing for 2 minutes. Check `docker compose logs api`.
+
+      - alert: AiEngineDown
+        expr: up{job="clipforge-ai-engine"} == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: AI engine unreachable — analysis stages will fail and retry
+
+      - alert: VideoProcessorDown
+        expr: up{job="clipforge-video-processor"} == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: Video processor unreachable — rendering will fail and retry
+
+      - alert: DatabaseDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: PostgreSQL is unreachable — no state change is possible
+
+      - alert: QueueBacklog
+        expr: clipforge_queue_waiting > 50
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: Queue backlog above 50 jobs — add worker capacity or investigate a stuck stage

@@ -1,0 +1,45 @@
+{
+  "name": "clipforge-ai",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ClipForge AI \u2014 AI video repurposing and automatic social publishing platform",
+  "engines": {
+    "node": ">=20.11.0",
+    "npm": ">=10.0.0"
+  },
+  "workspaces": [
+    "apps/api",
+    "apps/web",
+    "packages/database",
+    "packages/shared-types",
+    "packages/validation",
+    "packages/platform-connectors"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test:unit",
+    "db:generate": "npm run generate -w @clipforge/database",
+    "db:migrate": "npm run migrate -w @clipforge/database",
+    "db:deploy": "npm run migrate:deploy -w @clipforge/database",
+    "dev:api": "npm run dev -w @clipforge/api",
+    "dev:web": "npm run dev -w @clipforge/web",
+    "worker:ai": "npm run worker:ai -w @clipforge/api",
+    "worker:render": "npm run worker:render -w @clipforge/api",
+    "worker:publish": "npm run worker:publish -w @clipforge/api",
+    "worker:scheduler": "npm run worker:scheduler -w @clipforge/api",
+    "worker:recovery": "npm run worker:recovery -w @clipforge/api",
+    "test:unit": "vitest run --config tests/vitest.config.ts",
+    "test:integration": "vitest run --config tests/vitest.integration.config.ts",
+    "test:e2e": ".venv/bin/python tests/e2e/full_workflow.py",
+    "verify:health": "bash infrastructure/scripts/healthcheck.sh",
+    "verify:pipeline": ".venv/bin/python infrastructure/scripts/verify-pipeline.py",
+    "openapi:export": "curl -fsS http://127.0.0.1:4000/api/docs/openapi.json -o docs/openapi.json"
+  },
+  "devDependencies": {
+    "typescript": "5.7.2",
+    "tsx": "4.19.2",
+    "prettier": "3.4.2"
+  }
+}
