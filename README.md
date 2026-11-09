@@ -12,19 +12,25 @@ pretending to work.
 
 ## Layout
 
+A monorepo with six top-level areas. Every folder has its own README explaining what belongs in it.
+
 ```
-apps/web                 Next.js 15 dashboard (light premium UI, 10 pages)
 apps/api                 NestJS API + 5 worker roles (pipeline, render, publish, scheduler, recovery)
-packages/database        Prisma schema (24 entities), repositories, configuration, crypto, outbox
-packages/shared-types    Job state machine, error model, config keys, DTO shapes
-packages/validation      Zod schemas shared by the API and the UI
-packages/platform-connectors  YouTube Data API v3 + Instagram Graph API connectors, error classification
-services/ai-engine       FastAPI: Whisper transcription, frame sampling, Gemini structured analysis, selection
-services/video-processor FastAPI: FFmpeg framing, subtitles, loudness analysis, 9:16 render
-infrastructure           Dockerfiles, compose (dev/prod), Caddy/Nginx, backups, monitoring, scripts
-tests                    unit (vitest), integration (vitest + real Postgres), e2e (python HTTP harness)
-docs                     architecture, configuration, AI pipeline, platform setup, operations, testing, verification
+apps/web                 Next.js 15 dashboard (10 pages, operator-aware)
+packages/database        Prisma schema (34 models), repositories, job transitions, outbox, crypto
+packages/shared-types    Job state machine, config keys, enums, DTO shapes
+packages/validation      Zod schemas shared by the API and the dashboard
+packages/platform-connectors  YouTube Data API v3 + Instagram Graph API clients, error classification
+services/ai-engine       FastAPI: Whisper transcription, frame sampling, Gemini analysis, selection
+services/video-processor FastAPI: FFmpeg framing, subtitles, loudness, 9:16 render + content validation
+tests                    unit (vitest) · integration (vitest + Postgres) · python · e2e (live stack)
+infrastructure           Dockerfiles, compose, Caddy, backups, run/health scripts
+scripts                  developer automation (not shipped)
+docs                     architecture, configuration, AI pipeline, platform setup, operations, testing
 ```
+
+Read next: [`docs/FOLDER-STRUCTURE.md`](docs/FOLDER-STRUCTURE.md) (tree + "where does this file go?")
+and [`docs/CODE-MAP.md`](docs/CODE-MAP.md) (every file, with line counts and purpose).
 
 ## What it does
 
