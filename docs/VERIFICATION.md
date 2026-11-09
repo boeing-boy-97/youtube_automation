@@ -105,7 +105,7 @@ Measured on 2026-11-09 against the running stack (see "Verification pass" below 
 | Python (renderer logic) | `.venv/bin/python tests/python/test_render_validation.py` | **13 passed** |
 | End-to-end (HTTP, real FFmpeg renders) | `.venv/bin/python tests/e2e/scenarios.py` | **45/45 checks, 19 scenarios** |
 | Authorization matrix | `.venv/bin/python tests/e2e/authorization_matrix.py` | **27/27** (also run inside scenario 18) |
-| Logic probes (adversarial) | `.venv/bin/python tests/e2e/logic_probes.py` | **38/38** |
+| Logic probes (adversarial) | `.venv/bin/python tests/e2e/logic_probes.py` | **40/40** |
 | Health smoke | `bash infrastructure/scripts/healthcheck.sh` | api / ai-engine / video-processor 200, postgres + redis healthy |
 | Python module import sweep | import all 17 modules under `services/*/app/` | clean |
 
@@ -158,7 +158,16 @@ adversarially (`tests/e2e/logic_probes.py`).
    `409 CONFLICT` ("Job is already FAILED") and any residual illegal transition is mapped to the same
    conflict; a unit test now pins the absence of that edge. Verified live: cancel a `FAILED` job →
    `409 CONFLICT`, retry the same job → `201` and the pipeline resumes from `PROBING`.
-4. **The e2e suite aborted instead of reporting (test-harness bug).** A failed pipeline made
+4. **ASR words were joined assuming Whisper's leading-space convention (robustness bug).** Every
+   Whisper token carries the space that preceded it (`" the"`, `" quick"`), and the code relied on
+   that: `"".join(words)` rebuilt the sentence. A provider that emits bare tokens would collapse a
+   whole window into a single "word" — the six-word speech gate then rejected **every** candidate as
+   `NO_SPEECH_IN_WINDOW`, and subtitles rendered `HELLOWORLD` with a wrong line length. *Fix:*
+   `_join_words` / `join_words` join bare tokens with spaces (space-prefixed tokens are unchanged),
+   used by the selector, the static subtitle line and the karaoke renderer. Verified by two new
+   probes: bare tokens yield a 22-word accepted transcript and correctly spaced ASS text
+   (**40/40** probes).
+5. **The e2e suite aborted instead of reporting (test-harness bug).** A failed pipeline made
    scenario 10 raise `IndexError`, so scenarios 10–19 reported nothing. Each scenario now runs
    inside a guard, clip-dependent scenarios fail with the job's status and message, and the run
    always reaches a summary. The suite is green at **45/45** after the fix.
@@ -169,7 +178,7 @@ After the fixes were committed, the whole stack was rebuilt from nothing (fresh 
 PostgreSQL 17.11, Redis 7, FFmpeg 7.1.5; fresh `npm install`; fresh Python venv with
 `faster-whisper`; fresh database with all migrations) and the suites re-run against it:
 typecheck 6/6 clean · unit **54/54** · integration **14/14** · Python **13/13** · logic probes
-**38/38** · e2e scenarios **45/45** (27/27 authorization checks inside scenario 18) · real
+**40/40** · e2e scenarios **45/45** (27/27 authorization checks inside scenario 18) · real
 faster-whisper transcription (`tiny.en`, 90 word timestamps) · real FFmpeg render (404×720, 9:16,
 `quality.passed=true`).
 

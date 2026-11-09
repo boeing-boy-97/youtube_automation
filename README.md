@@ -80,7 +80,7 @@ Or run the whole stack in containers: `docker compose -f docker-compose.dev.yml 
 | Renderer logic (Python) | `.venv/bin/python tests/python/test_render_validation.py` | 13 passed |
 | End-to-end scenarios (HTTP) | `.venv/bin/python tests/e2e/scenarios.py <video>` | 45/45 checks, 19 scenarios |
 | Authorization matrix | `.venv/bin/python tests/e2e/authorization_matrix.py` | 27/27 |
-| Logic probes (adversarial) | `.venv/bin/python tests/e2e/logic_probes.py` | 38/38 |
+| Logic probes (adversarial) | `.venv/bin/python tests/e2e/logic_probes.py` | 40/40 |
 | End-to-end workflow (single journey) | `.venv/bin/python tests/e2e/full_workflow.py <video>` | PASSED |
 | Service smoke test | `bash infrastructure/scripts/healthcheck.sh` | all healthy |
 

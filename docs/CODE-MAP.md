@@ -2,9 +2,9 @@
 
 Every file that makes up this project, with its line count and what it does. This is an index, not a copy: the code lives at the path shown. Regenerate with `.venv/bin/python scripts/build-code-map.py` — do not hand-edit.
 
-**144 source files · 21,092 lines · 187 files tracked in git**
+**144 source files · 21,139 lines · 187 files tracked in git**
 
-Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `dbb26c6`
+Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `580c7f0`
 
 
 ## API server — `apps/api`
@@ -151,7 +151,7 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `dbb26c6`
 
 ## Python services — `services`
 
-17 source files · 3,360 lines
+17 source files · 3,386 lines
 
 | file | lines | purpose |
 | --- | ---: | --- |
@@ -164,7 +164,7 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `dbb26c6`
 | `services/ai-engine/app/main.py` | 177 | AI engine HTTP service. Endpoints GET /health — liveness + capability report (never claims readiness it lacks) POST /transcribe — transcription only ( |
 | `services/ai-engine/app/media.py` | 230 | FFmpeg / FFprobe wrappers: probing, audio extraction and resource-efficient frame sampling with scene-change detection. No frame is ever produced twic |
 | `services/ai-engine/app/pipeline.py` | 241 | Full analysis pipeline: inspect → extract audio → transcribe → see → understand → validate → de-duplicate → plan dual-duration variants. |
-| `services/ai-engine/app/selection.py` | 566 | Highlight candidate generation, validation, scoring, de-duplication and dual-duration variant planning. Design rules encoded here: * The model propose |
+| `services/ai-engine/app/selection.py` | 580 | Highlight candidate generation, validation, scoring, de-duplication and dual-duration variant planning. Design rules encoded here: * The model propose |
 | `services/ai-engine/app/transcribe.py` | 98 | Accurate transcription with word-level timestamps (faster-whisper). Timestamps come straight from the model and are never invented or rounded to whole |
 | `services/ai-engine/app/vision.py` | 142 | Visual intelligence: describe representative frames with a vision model. Cost control: only frames that survived scene-detection + de-duplication are  |
 | `services/video-processor/README.md` | 21 | `services/video-processor` — rendering |
@@ -173,11 +173,11 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `dbb26c6`
 | `services/video-processor/app/framing.py` | 238 | Intelligent vertical framing. Face detection uses OpenCV's Haar cascade (CPU-only, no model download) sampled at a fixed rate, then a temporal tracker |
 | `services/video-processor/app/main.py` | 176 | Video processor HTTP service. Endpoints GET /health — liveness + FFmpeg availability POST /probe — ffprobe inspection (used by the API's upload valida |
 | `services/video-processor/app/renderer.py` | 604 | FFmpeg rendering: vertical composition, framing, burned subtitles and loudness-normalised audio. Output is verified with ffprobe after encoding. |
-| `services/video-processor/app/subtitles.py` | 300 | Word-timed subtitle generation (ASS) with karaoke-style highlighting. The style is always an explicit user/administrator choice; nothing is hardcoded  |
+| `services/video-processor/app/subtitles.py` | 312 | Word-timed subtitle generation (ASS) with karaoke-style highlighting. The style is always an explicit user/administrator choice; nothing is hardcoded  |
 
 ## Tests — `tests`
 
-16 source files · 2,553 lines
+16 source files · 2,574 lines
 
 | file | lines | purpose |
 | --- | ---: | --- |
@@ -185,7 +185,7 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `dbb26c6`
 | `tests/e2e/authorization_matrix.py` | 220 | Authorization matrix against a running ClipForge stack. Three questions this answers, with evidence rather than inspection: 1. Can an unauthenticated  |
 | `tests/e2e/full_workflow.py` | 257 | End-to-end workflow test against a running ClipForge stack. Exercises the real HTTP API and the real workers: login → configure workspace → upload a r |
 | `tests/e2e/harness.py` | 187 | Shared helpers for the ClipForge end-to-end suites. Both `authorization_matrix.py` and `scenarios.py` drive the live stack through its real HTTP API w |
-| `tests/e2e/logic_probes.py` | 193 | Adversarial probes of the core algorithms — does the logic hold, not just the happy path? The unit tests check the happy paths the product needs. Thes |
+| `tests/e2e/logic_probes.py` | 214 | Adversarial probes of the core algorithms — does the logic hold, not just the happy path? The unit tests check the happy paths the product needs. Thes |
 | `tests/e2e/scenarios.py` | 636 | Nineteen end-to-end scenarios against a running ClipForge stack. Each scenario answers one question an operator or reviewer would ask, and prints the  |
 | `tests/integration/database.test.ts` | 245 | Integration tests against the real PostgreSQL database. These exercise the durable primitives the workers rely on: the job state machine, worker lease |
 | `tests/integration/storage.test.ts` | 89 | Integration tests for the local storage driver's byte-exact behaviour. Both cases are regressions from a real defect: ranged reads that ignored the of |
@@ -247,7 +247,7 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `dbb26c6`
 | `docs/OPERATIONS.md` | 76 | Operations |
 | `docs/PLATFORM-SETUP.md` | 63 | Platform setup (Google / Meta / storage) |
 | `docs/TESTING.md` | 112 | Testing |
-| `docs/VERIFICATION.md` | 240 | Verification report |
+| `docs/VERIFICATION.md` | 249 | Verification report |
 | `docs/openapi.json` | 1 | — |
 
 ---

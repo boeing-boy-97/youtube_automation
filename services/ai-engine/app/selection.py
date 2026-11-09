@@ -539,12 +539,26 @@ def _snap_to_word_end(segments: list[dict], end: float) -> float | None:
     return None
 
 
+def _join_words(words: list[str]) -> str:
+    """Join ASR word tokens into readable text.
+
+    Whisper prefixes every word with the space that preceded it, so a plain concatenation
+    reproduces the sentence exactly. A provider that emits bare tokens (or strips the leading
+    space) would collapse a whole window into one "word", which silently failed the six-word
+    speech gate and made every candidate look like NO_SPEECH_IN_WINDOW.
+    """
+    joined = "".join(words)
+    if len(words) > 1 and " " not in joined:
+        joined = " ".join(words)
+    return joined
+
+
 def _transcript_for_window(segments: list[dict], start: float, end: float) -> str:
     parts = []
     for segment in segments:
         words = [w["word"] for w in segment.get("words", []) if w["end"] > start and w["start"] < end]
         if words:
-            parts.append("".join(words).strip() if not words[0].startswith(" ") else "".join(words).strip())
+            parts.append(_join_words(words))
         elif segment["end"] > start and segment["start"] < end:
             parts.append(segment["text"])
     return re.sub(r"\s+", " ", " ".join(parts)).strip()

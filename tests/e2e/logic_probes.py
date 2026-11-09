@@ -71,6 +71,21 @@ if a:
           validate([cand(quality_score=100)])[0][0].quality_score == 90, "100 claimed → 90 kept")
     check("snapping is recorded as a validation note", any("snapped" in n for n in a.validation_notes), f"notes={a.validation_notes}")
 
+# A provider that emits bare word tokens (no leading space) must not collapse a window into one
+# "word": that would fail the six-word speech gate for every candidate, silently.
+bare_segments = [
+    {"start": s["start"], "end": s["end"], "text": s["text"],
+     "words": [{**w, "word": w["word"].strip()} for w in s["words"]]}
+    for s in segs
+]
+raw = {"candidates": [cand()], "video_summary": "s", "content_themes": [], "no_candidate_reason": ""}
+bare_accepted, bare_rejected, _ = sel.validate_and_normalise(
+    raw, segments=bare_segments, duration_seconds=DUR, target_durations=[15, 30], min_quality_score=70)
+check("bare ASR word tokens still count as speech",
+      len(bare_accepted) == 1 and len(bare_accepted[0].transcript.split()) >= 6,
+      f"accepted={len(bare_accepted)} rejected={[r.get('reason') for r in bare_rejected]} "
+      f"words={len(bare_accepted[0].transcript.split()) if bare_accepted else 0}")
+
 accepted, rejected, _ = validate([cand(start_time=10, end_time=14)])
 check("a 4 s candidate is rejected as TOO_SHORT", len(accepted) == 0 and rejected[0]["reason"] == "TOO_SHORT", f"{[r.get('reason') for r in rejected]}")
 accepted, rejected, _ = validate([cand(start_time=40, end_time=20)])
@@ -129,6 +144,12 @@ try:
     check("empty word list is refused, not silently rendered blank", False, "no error raised")
 except ValueError:
     check("empty word list is refused, not silently rendered blank", True, "ValueError")
+bare_words = [{"word": w["word"].strip(), "start": w["start"], "end": w["end"], "probability": 0.9} for w in words]
+bare_ass, _ = sub.build_ass(words=bare_words, style=style, output_width=1080, output_height=1920, clip_start=0.0, clip_end=2.0)
+check("bare ASR word tokens are still spaced out in the subtitle text",
+      "HELLOWORLD" not in bare_ass.upper() and "HELLO" in bare_ass.upper() and "WORLD" in bare_ass.upper(),
+      "tokens joined with spaces, not run together")
+
 ass_short, _ = sub.build_ass(words=words, style=style, output_width=1080, output_height=1920, clip_start=0.0, clip_end=5.0)
 check("clip longer than the speech still produces valid subtitles", ass_short.startswith("[Script Info]"), "header ok")
 

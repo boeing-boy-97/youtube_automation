@@ -88,6 +88,18 @@ def ass_color(hex_colour: str) -> str:
     return f"&H00{blue}{green}{red}".upper()
 
 
+def join_words(tokens: list[str]) -> str:
+    """Concatenate ASR tokens, tolerating providers that do not prefix each word with a space.
+
+    Whisper emits " the", " quick", so a bare join restores the sentence. A provider that emits
+    "the", "quick" would otherwise render "thequickbrownfox" and mis-count line length.
+    """
+    joined = "".join(tokens)
+    if len(tokens) > 1 and " " not in joined:
+        joined = " ".join(tokens)
+    return joined
+
+
 def group_lines(words: list[dict], style: SubtitleStyleConfig) -> list[SubtitleLine]:
     """Groups words into caption lines that respect the style constraints."""
     lines: list[SubtitleLine] = []
@@ -102,7 +114,7 @@ def group_lines(words: list[dict], style: SubtitleStyleConfig) -> list[SubtitleL
 
     for word in words:
         text = word["word"]
-        candidate = "".join(w["word"] for w in current) + text
+        candidate = join_words([w["word"] for w in current] + [text])
         visible = candidate.strip()
         over_length = len(visible) > style.max_chars_per_line * style.max_lines
         if over_length and current:
@@ -111,7 +123,7 @@ def group_lines(words: list[dict], style: SubtitleStyleConfig) -> list[SubtitleL
         # Break after sentence-ending punctuation, or when the line is long enough.
         if re.search(r"[.!?…]$", text.strip()):
             flush()
-        elif len("".join(w["word"] for w in current).strip()) >= style.max_chars_per_line and len(current) >= 3:
+        elif len(join_words([w["word"] for w in current]).strip()) >= style.max_chars_per_line and len(current) >= 3:
             flush()
     flush()
 
@@ -223,7 +235,7 @@ def build_ass(
         visible_words = [w for w in line.words if w["word"].strip()]
         if not visible_words:
             continue
-        full_text = "".join(w["word"] for w in visible_words).strip()
+        full_text = join_words([w["word"] for w in visible_words]).strip()
         if style.uppercase:
             full_text = full_text.upper()
         rows = split_into_visual_rows(full_text, style)
