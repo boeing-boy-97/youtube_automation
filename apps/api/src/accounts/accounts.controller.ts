@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, Post, Query, Res } from '@nestjs/
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { z } from 'zod';
-import { CurrentContext, Public } from '../common/decorators/auth.decorators';
+import { CurrentContext, Public, Roles } from '../common/decorators/auth.decorators';
 import type { RequestContext } from '../common/guards/session-auth.guard';
 import { RateLimit } from '../common/decorators/rate-limit.decorator';
 import { env } from '../common/env';
@@ -21,6 +21,7 @@ export class AccountsController {
     return this.accounts.list(ctx);
   }
 
+  @Roles('OWNER', 'ADMIN')
   @Post('youtube/connect')
   @RateLimit({ limit: 10, windowSeconds: 60, scope: 'account-connect' })
   startYouTube(@CurrentContext() ctx: RequestContext) {
@@ -43,6 +44,7 @@ export class AccountsController {
     }
   }
 
+  @Roles('OWNER', 'ADMIN')
   @Post('youtube/select-channel')
   @ApiOperation({ summary: 'Confirm which authorized YouTube channel to publish to' })
   selectChannel(@Body() body: unknown, @CurrentContext() ctx: RequestContext) {
@@ -50,6 +52,7 @@ export class AccountsController {
     return this.accounts.completeYouTubeSelection(parsed.pendingToken, parsed.channelId, ctx);
   }
 
+  @Roles('OWNER', 'ADMIN')
   @Post('instagram/connect')
   @RateLimit({ limit: 10, windowSeconds: 60, scope: 'account-connect' })
   startInstagram(@CurrentContext() ctx: RequestContext) {
@@ -77,12 +80,14 @@ export class AccountsController {
     }
   }
 
+  @Roles('OWNER', 'ADMIN')
   @Post(':id/verify')
   @RateLimit({ limit: 30, windowSeconds: 60, scope: 'account-verify' })
   verify(@Param('id') id: string, @CurrentContext() ctx: RequestContext) {
     return this.accounts.verify(id, ctx);
   }
 
+  @Roles('OWNER', 'ADMIN')
   @Delete(':id')
   disconnect(@Param('id') id: string, @CurrentContext() ctx: RequestContext) {
     return this.accounts.disconnect(id, ctx);

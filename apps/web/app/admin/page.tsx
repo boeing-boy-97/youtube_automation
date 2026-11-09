@@ -1,12 +1,23 @@
 'use client';
 
-import { useSystemOverview } from '@/lib/hooks';
+import { useIsOperator, useSystemOverview } from '@/lib/hooks';
 import { Card, CardHeader, ErrorState, Section, Skeleton, StatCard, StatusBadge } from '@/components/ui';
 import { formatRelative } from '@/lib/api';
 
 export default function AdminPage() {
-  const system = useSystemOverview();
+  const isOperator = useIsOperator();
+  const system = useSystemOverview(isOperator);
 
+  if (!isOperator) {
+    return (
+      <Card className="px-5 py-4">
+        <p className="text-[13px] font-semibold text-ink">Operators only</p>
+        <p className="mt-1 text-[13px] text-ink-soft">
+          System health, worker leases and queue depths are visible to workspace owners and admins.
+        </p>
+      </Card>
+    );
+  }
   if (system.isLoading) return <Card><Skeleton rows={8} /></Card>;
   if (system.error) return <ErrorState message={system.error.message} onRetry={() => void system.refetch()} />;
   const data = system.data!;

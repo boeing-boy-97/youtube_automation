@@ -293,6 +293,16 @@ export interface SystemOverview {
   uptimeSeconds: number;
 }
 
+/**
+ * Operator surfaces (system, usage, workspace configuration, brand assets, OAuth accounts) are
+ * OWNER/ADMIN only on the API. Pages must ask the same question rather than render a form that
+ * can only fail with 403.
+ */
+export function useIsOperator(): boolean {
+  const session = useSession();
+  return ['OWNER', 'ADMIN'].includes(session.data?.user?.role ?? '');
+}
+
 export function useSystemOverview(enabled = true) {
   return useQuery({
     queryKey: ['system'],

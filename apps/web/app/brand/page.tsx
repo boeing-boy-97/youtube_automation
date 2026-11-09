@@ -3,13 +3,16 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, uploadBrandAsset } from '@/lib/api';
-import { useConfiguration } from '@/lib/hooks';
+import { useConfiguration, useIsOperator } from '@/lib/hooks';
 import { Badge, Card, CardHeader, EmptyState, ErrorState, Field, Section, Skeleton, Toast } from '@/components/ui';
 
 const VOICES = ['professional', 'educational', 'motivational', 'conversational', 'entertaining', 'custom'] as const;
 
 export default function BrandPage() {
   const configuration = useConfiguration();
+  // Brand assets and subtitle presets are OWNER/ADMIN only on the API: a member sees the existing
+  // records but no create/upload controls.
+  const isOperator = useIsOperator();
   const client = useQueryClient();
   const [open, setOpen] = useState<'brand' | 'preset'>('brand');
   const [message, setMessage] = useState<string | null>(null);
@@ -99,7 +102,17 @@ export default function BrandPage() {
     <div className="space-y-5">
       <Section title="Brand studio" description="Brand profiles drive AI metadata tone; subtitle presets drive burned-in captions. Both are explicit workspace records — nothing is inferred." />
 
-      <div className="flex gap-1 rounded-lg bg-surface-sunken p-1 text-[13px] w-fit">
+      {!isOperator ? (
+        <Card className="px-5 py-4">
+          <p className="text-[13px] font-semibold text-ink">Read-only view</p>
+          <p className="mt-1 text-[13px] text-ink-soft">
+            Brand profiles, subtitle presets and brand assets are managed by workspace owners and admins. You can see
+            what is in use below; ask an owner to change it.
+          </p>
+        </Card>
+      ) : null}
+
+      <div className={`flex gap-1 rounded-lg bg-surface-sunken p-1 text-[13px] w-fit ${isOperator ? '' : 'hidden'}`}>
         {(['brand', 'preset'] as const).map((value) => (
           <button
             key={value}
@@ -115,7 +128,7 @@ export default function BrandPage() {
       {error ? <ErrorState message={error} /> : null}
       {message ? <Toast tone="positive" onClose={() => setMessage(null)}>{message}</Toast> : null}
 
-      {open === 'brand' ? (
+      {!isOperator && open === 'brand' ? null : open === 'brand' ? (
         <Card>
           <CardHeader title="New brand profile" description="The brand voice is injected into the per-platform metadata prompt" />
           <div className="grid gap-4 px-5 py-5 md:grid-cols-2">
@@ -177,7 +190,7 @@ export default function BrandPage() {
             </button>
           </div>
         </Card>
-      ) : open === 'preset' ? (
+      ) : !isOperator && open === 'preset' ? null : open === 'preset' ? (
         <Card>
           <CardHeader title="New subtitle preset" description="Word-level highlighting is applied at the times Whisper reported — never estimated" />
           <div className="grid gap-4 px-5 py-5 md:grid-cols-3">

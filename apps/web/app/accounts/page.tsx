@@ -4,7 +4,7 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { useAccounts, useDisconnectAccount, useVerifyAccount } from '@/lib/hooks';
+import { useAccounts, useDisconnectAccount, useIsOperator, useVerifyAccount } from '@/lib/hooks';
 import { Badge, Card, CardHeader, EmptyState, ErrorState, Field, Section, Skeleton, StatusBadge } from '@/components/ui';
 
 interface YouTubeChannel { id: string; title: string; handle: string | null; thumbnail: string | null }
@@ -23,6 +23,8 @@ function AccountsContent() {
   const accounts = useAccounts();
   const verify = useVerifyAccount();
   const disconnect = useDisconnectAccount();
+  // OAuth connect/disconnect/verify are OWNER/ADMIN only on the API.
+  const isOperator = useIsOperator();
   const [notice, setNotice] = useState<string | null>(null);
 
   const oauth = params.get('oauth');
@@ -107,8 +109,8 @@ function AccountsContent() {
               ? 'OAuth client credentials are present. Connect a channel to authorise uploads.'
               : 'Set YOUTUBE_CLIENT_ID / YOUTUBE_CLIENT_SECRET in the API environment, then restart the API.'}
           </p>
-          <button type="button" className="btn-secondary mt-3" onClick={() => connectYouTube.mutate()} disabled={!integrations?.youtubeConfigured || connectYouTube.isPending}>
-            Connect YouTube channel
+          <button type="button" className="btn-secondary mt-3" onClick={() => connectYouTube.mutate()} disabled={!isOperator || !integrations?.youtubeConfigured || connectYouTube.isPending}>
+            {isOperator ? 'Connect YouTube channel' : 'Owners and admins connect channels'}
           </button>
         </Card>
 
@@ -129,7 +131,7 @@ function AccountsContent() {
               ? 'Meta app credentials are present. Connect the Instagram professional account.'
               : 'Set INSTAGRAM_APP_ID / INSTAGRAM_APP_SECRET and META_GRAPH_API_VERSION in the API environment.'}
           </p>
-          <button type="button" className="btn-secondary mt-3" onClick={() => connectInstagram.mutate()} disabled={!integrations?.instagramConfigured || connectInstagram.isPending}>
+          <button type="button" className="btn-secondary mt-3" onClick={() => connectInstagram.mutate()} disabled={!isOperator || !integrations?.instagramConfigured || connectInstagram.isPending}>
             Connect Instagram account
           </button>
         </Card>

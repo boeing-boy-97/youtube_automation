@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { useConfiguration, useSaveConfiguration, useSystemOverview } from '@/lib/hooks';
+import { useConfiguration, useIsOperator, useSaveConfiguration, useSystemOverview } from '@/lib/hooks';
 import { CONFIG_FIELDS, CONFIG_GROUPS, type ConfigField } from '@/lib/config-schema';
 import { Badge, Card, CardHeader, ErrorState, Field, Section, Skeleton, StatusBadge, Toast } from '@/components/ui';
 
@@ -29,7 +29,10 @@ function parseValue(field: ConfigField, raw: string | boolean): unknown {
 
 export default function SettingsPage() {
   const configuration = useConfiguration();
-  const system = useSystemOverview();
+  // Configuration writes are OWNER/ADMIN only on the API; members get a read-only view instead of
+  // a form whose save button can only produce a 403.
+  const isOperator = useIsOperator();
+  const system = useSystemOverview(isOperator);
   const save = useSaveConfiguration();
   const [draft, setDraft] = useState<Draft>({});
   const [dirty, setDirty] = useState<Set<string>>(new Set());
@@ -89,12 +92,16 @@ export default function SettingsPage() {
             Nothing has a built-in default. Processing stays blocked until every required value is set explicitly.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button type="button" className="btn-ghost" onClick={() => { setDraft(toDraft(data.values)); setDirty(new Set()); setSaved(false); }}>Reset changes</button>
-          <button type="button" className="btn-primary" onClick={submit} disabled={save.isPending || dirty.size === 0}>
-            {save.isPending ? 'Saving…' : `Save ${dirty.size > 0 ? `${dirty.size} change(s)` : ''}`}
-          </button>
-        </div>
+        {isOperator ? (
+          <div className="flex items-center gap-2">
+            <button type="button" className="btn-ghost" onClick={() => { setDraft(toDraft(data.values)); setDirty(new Set()); setSaved(false); }}>Reset changes</button>
+            <button type="button" className="btn-primary" onClick={submit} disabled={save.isPending || dirty.size === 0}>
+              {save.isPending ? 'Saving…' : `Save ${dirty.size > 0 ? `${dirty.size} change(s)` : ''}`}
+            </button>
+          </div>
+        ) : (
+          <Badge tone="neutral">Read-only · operators only</Badge>
+        )}
       </div>
 
       {missing.length > 0 ? (
@@ -157,7 +164,17 @@ export default function SettingsPage() {
       {error ? <ErrorState message={error} /> : null}
       {saved ? <Toast tone="positive" onClose={() => setSaved(false)}>Configuration saved and audited.</Toast> : null}
 
-      {CONFIG_GROUPS.map((group) => (
+      {!isOperator ? (
+        <Card className="px-5 py-4">
+          <p className="text-[13px] font-semibold text-ink">Read-only view</p>
+          <p className="mt-1 text-[13px] text-ink-soft">
+            Only workspace owners and admins can change processing configuration, brand assets, connected accounts
+            and automatic publishing. Ask an owner if a value needs to change.
+          </p>
+        </Card>
+      ) : null}
+
+      {!isOperator ? null : CONFIG_GROUPS.map((group) => (
         <Card key={group}>
           <CardHeader title={group} description={`${CONFIG_FIELDS.filter((field) => field.group === group).length} setting(s)`} />
           <div className="grid gap-4 px-5 py-5 md:grid-cols-2">

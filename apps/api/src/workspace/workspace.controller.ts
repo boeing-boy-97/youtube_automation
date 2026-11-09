@@ -3,7 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { brandProfileSchema, configurationWriteSchema, subtitlePresetSchema } from '@clipforge/validation';
-import { CurrentContext } from '../common/decorators/auth.decorators';
+import { CurrentContext, Roles } from '../common/decorators/auth.decorators';
 import type { RequestContext } from '../common/guards/session-auth.guard';
 import { RateLimit } from '../common/decorators/rate-limit.decorator';
 import { WorkspaceService } from './workspace.service';
@@ -22,6 +22,7 @@ export class WorkspaceController {
     return this.workspace.configuration(ctx);
   }
 
+  @Roles('OWNER', 'ADMIN')
   @Put('configuration')
   @ApiOperation({ summary: 'Write configuration explicitly (setup wizard)' })
   async write(@Body() body: unknown, @CurrentContext() ctx: RequestContext) {
@@ -29,6 +30,7 @@ export class WorkspaceController {
     return this.workspace.writeConfiguration(parsed.entries, ctx);
   }
 
+  @Roles('OWNER', 'ADMIN')
   @Post('brand-profiles')
   createBrand(@Body() body: unknown, @CurrentContext() ctx: RequestContext) {
     return this.workspace.createBrandProfile(brandProfileSchema.parse(body), ctx);
@@ -44,6 +46,7 @@ export class WorkspaceController {
    * them from storage, so leaving only a raw `storageKey` field made the feature unusable in the UI.
    */
   @Post('brand-assets')
+  @Roles('OWNER', 'ADMIN')
   @RateLimit({ limit: 20, windowSeconds: 60, scope: 'brand-asset-upload' })
   @UseInterceptors(
     FileInterceptor('file', {
@@ -62,6 +65,7 @@ export class WorkspaceController {
     return this.workspace.uploadBrandAsset(kind, file, ctx);
   }
 
+  @Roles('OWNER', 'ADMIN')
   @Post('subtitle-presets')
   createPreset(@Body() body: unknown, @CurrentContext() ctx: RequestContext) {
     return this.workspace.createSubtitlePreset(subtitlePresetSchema.parse(body), ctx);

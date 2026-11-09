@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createPublishingJobSchema, paginationSchema, publishingToggleSchema } from '@clipforge/validation';
-import { CurrentContext } from '../common/decorators/auth.decorators';
+import { CurrentContext, Roles } from '../common/decorators/auth.decorators';
 import type { RequestContext } from '../common/guards/session-auth.guard';
 import { RateLimit } from '../common/decorators/rate-limit.decorator';
 import { PublishingService } from './publishing.service';
@@ -11,6 +11,7 @@ import { PublishingService } from './publishing.service';
 export class PublishingController {
   constructor(private readonly publishing: PublishingService) {}
 
+  @Roles('OWNER', 'ADMIN')
   @Post('enable')
   @RateLimit({ limit: 20, windowSeconds: 60, scope: 'publishing-toggle' })
   @ApiOperation({ summary: 'Enable automatic publishing for a connected account (all preconditions must be explicit)' })
@@ -19,6 +20,7 @@ export class PublishingController {
     return this.publishing.setEnabled({ ...parsed, enabled: true }, ctx);
   }
 
+  @Roles('OWNER', 'ADMIN')
   @Post('disable')
   @RateLimit({ limit: 20, windowSeconds: 60, scope: 'publishing-toggle' })
   async disable(@Body() body: unknown, @CurrentContext() ctx: RequestContext) {
