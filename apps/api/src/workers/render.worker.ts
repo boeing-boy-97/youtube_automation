@@ -7,6 +7,7 @@ import { mkdir } from 'node:fs/promises';
 import { prisma, transitionJob, writeOutbox, appendAuditLog, acquireJobLease, releaseJobLease } from '@clipforge/database';
 import type { Prisma } from '@prisma/client';
 import { env } from '../common/env';
+import { estimateCostUsd } from '../common/services/usage-cost';
 import { sha256File } from '@clipforge/database';
 import { AppConfigService } from '../common/services/config.service';
 import { StorageService } from '../storage/storage.service';
@@ -185,6 +186,7 @@ async function renderClip(clipId: string, jobId: string): Promise<void> {
   });
 
   await prisma.generatedClip.update({ where: { id: clipId }, data: { status: 'READY' } });
+  const renderMetadata = { clipId, elapsedMs: Date.now() - renderStarted };
   await prisma.usageRecord.create({
     data: {
       workspaceId: clip.workspaceId,
@@ -192,7 +194,8 @@ async function renderClip(clipId: string, jobId: string): Promise<void> {
       kind: 'render_seconds',
       quantity: result.durationSeconds,
       unit: 'seconds',
-      metadata: { clipId, elapsedMs: Date.now() - renderStarted },
+      metadata: renderMetadata,
+      costUsd: estimateCostUsd('render_seconds', result.durationSeconds, renderMetadata),
     },
   });
   await appendAuditLog({

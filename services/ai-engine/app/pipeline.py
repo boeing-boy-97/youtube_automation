@@ -91,15 +91,17 @@ def analyze(settings: Settings, request: dict) -> dict:
             client = GeminiClient(settings)
             if not vision_model:
                 raise AnalysisRequestError("vision_model must be supplied explicitly")
-            observations = vision.describe_frames(settings, client, frames, vision_model)
+            observations, vision_usage = vision.describe_frames(settings, client, frames, vision_model)
         else:
             observations = fixture_provider.describe_frames(frames)
+            vision_usage = {"prompt_tokens": 0, "candidate_tokens": 0, "total_tokens": 0, "calls": 0}
         stages["vision"] = {
             "ok": True,
             "frames_sampled": len(frames),
             "scene_changes": len(scene_times),
             "observations": len(observations),
             "layout": vision.summarise_layout(observations),
+            "usage": vision_usage,
             "duration_ms": int((time.time() - vision_started) * 1000),
         }
     else:
@@ -191,7 +193,14 @@ def analyze(settings: Settings, request: dict) -> dict:
         "max_clips": max_clips,
         "rubric": selection.RUBRIC,
         "stages": stages,
-        "usage": usage,
+        # `total_tokens` stays the sum of every model call so existing consumers keep working.
+        "usage": {
+            "text": usage,
+            "vision": vision_usage,
+            "prompt_tokens": usage["prompt_tokens"] + vision_usage["prompt_tokens"],
+            "candidate_tokens": usage["candidate_tokens"] + vision_usage["candidate_tokens"],
+            "total_tokens": usage["total_tokens"] + vision_usage["total_tokens"],
+        },
         "elapsed_ms": int((time.time() - started) * 1000),
     }
 

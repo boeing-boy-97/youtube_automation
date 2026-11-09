@@ -45,9 +45,17 @@ shot type, any on-screen text, and the risk that a 9:16 centre crop would cut of
 subject. Never guess context that is not in the image."""
 
 
-def describe_frames(settings: Settings, client: GeminiClient, frames: list[dict], model: str) -> list[dict]:
+def describe_frames(
+    settings: Settings, client: GeminiClient, frames: list[dict], model: str
+) -> tuple[list[dict], dict]:
+    """Describe frames and return `(observations, usage)`.
+
+    Token usage is returned rather than discarded: a vision pass is the most expensive
+    call in the pipeline and was previously invisible to cost accounting.
+    """
+    usage = {"prompt_tokens": 0, "candidate_tokens": 0, "total_tokens": 0, "calls": 0}
     if not frames:
-        return []
+        return [], usage
     # Batch to keep prompt size and latency predictable (max 8 frames per call).
     batch_size = 8
     observations: list[dict] = []
@@ -65,7 +73,7 @@ def describe_frames(settings: Settings, client: GeminiClient, frames: list[dict]
             parts.append({"text": f"Frame at t={frame['timestamp']:.2f}s:"})
             parts.append({"inline_data": {"mime_type": "image/jpeg", "data": _b64(frame["path"])}})
         try:
-            payload, _usage = client.generate_structured(
+            payload, batch_usage = client.generate_structured(
                 model=model,
                 system_instruction=SYSTEM_INSTRUCTION,
                 parts=parts,
@@ -75,7 +83,12 @@ def describe_frames(settings: Settings, client: GeminiClient, frames: list[dict]
             )
         except Exception as exc:  # vision is additive: log, keep going with what we have
             logger.warning("Vision pass failed for batch starting at %s: %s", start, exc)
+            usage["failed_calls"] = int(usage.get("failed_calls", 0)) + 1
             continue
+        usage["prompt_tokens"] += batch_usage.prompt_tokens
+        usage["candidate_tokens"] += batch_usage.candidate_tokens
+        usage["total_tokens"] += batch_usage.total_tokens
+        usage["calls"] += 1
         for observation in payload.get("observations", []):
             try:
                 observations.append(
@@ -91,7 +104,7 @@ def describe_frames(settings: Settings, client: GeminiClient, frames: list[dict]
             except (TypeError, ValueError):
                 continue
     observations.sort(key=lambda o: o["timestamp"])
-    return observations
+    return observations, usage
 
 
 def summarise_layout(observations: list[dict]) -> dict:

@@ -55,6 +55,18 @@ export const envSchema = z.object({
   META_GRAPH_API_VERSION: z.string().optional(),
   META_REDIRECT_URI: z.string().optional(),
 
+  // Unit economics. Defaults reflect published list prices for the hosted model and free
+  // self-hosted compute (faster-whisper, ffmpeg). Override per deployment; changing them does not
+  // rewrite history, because each UsageRecord stores the cost computed when it was written.
+  PRICE_GEMINI_INPUT_PER_1K_TOKENS: z.coerce.number().min(0).default(0.0001),
+  PRICE_GEMINI_OUTPUT_PER_1K_TOKENS: z.coerce.number().min(0).default(0.0004),
+  PRICE_VISION_INPUT_PER_1K_TOKENS: z.coerce.number().min(0).default(0.0001),
+  PRICE_VISION_OUTPUT_PER_1K_TOKENS: z.coerce.number().min(0).default(0.0004),
+  PRICE_TRANSCRIPTION_PER_SECOND: z.coerce.number().min(0).default(0),
+  PRICE_RENDER_PER_SECOND: z.coerce.number().min(0).default(0),
+  PRICE_STORAGE_PER_GB_MONTH: z.coerce.number().min(0).default(0.023),
+  PRICE_PUBLISH_CALL: z.coerce.number().min(0).default(0),
+
   WORKER_CONCURRENCY_AI: z.coerce.number().int().positive().default(1),
   WORKER_CONCURRENCY_RENDER: z.coerce.number().int().positive().default(1),
   WORKER_CONCURRENCY_PUBLISH: z.coerce.number().int().positive().default(1),

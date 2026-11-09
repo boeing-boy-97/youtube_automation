@@ -13,6 +13,7 @@ import { QueuesModule } from './queues/queues.module';
 import { SourcesModule } from './sources/sources.module';
 import { StorageModule } from './storage/storage.module';
 import { SystemModule } from './system/system.module';
+import { UsageModule } from './usage/usage.module';
 import { WorkspaceModule } from './workspace/workspace.module';
 import { PrismaService } from './common/prisma.service';
 
@@ -27,6 +28,7 @@ import { PrismaService } from './common/prisma.service';
     AccountsModule,
     PublishingModule,
     SystemModule,
+    UsageModule,
     WorkspaceModule,
   ],
   controllers: [MediaController],

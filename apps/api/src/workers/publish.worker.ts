@@ -21,6 +21,7 @@ import {
   backoffWithJitter,
 } from '@clipforge/platform-connectors';
 import { env } from '../common/env';
+import { estimateCostUsd } from '../common/services/usage-cost';
 import { AccountsService } from '../accounts/accounts.service';
 import { StorageService } from '../storage/storage.service';
 import { RedisService } from '../common/services/redis.service';
@@ -103,6 +104,7 @@ async function publishOne(publishingJobId: string): Promise<void> {
       where: { id: attemptRow.id },
       data: { finishedAt: new Date(), durationMs: Date.now() - startedAt },
     });
+    await recordPublishCall(publishingJob, attemptRow.id, publishingJob.platform, true);
     await refreshParentJob(publishingJob.clip.jobId);
   } catch (error) {
     const platformError = error instanceof PlatformError ? error : null;
@@ -121,6 +123,8 @@ async function publishOne(publishingJobId: string): Promise<void> {
         responseSummary: (platformError?.details.raw ?? null) as Prisma.InputJsonValue,
       },
     });
+    // A failed call still costs a platform request; the record says so.
+    await recordPublishCall(publishingJob, attemptRow.id, publishingJob.platform, false);
     await failJob(publishingJobId, code, message, retryable, attemptNumber);
     await refreshParentJob(publishingJob.clip.jobId);
     if (!retryable) {
@@ -130,6 +134,30 @@ async function publishOne(publishingJobId: string): Promise<void> {
     }
     throw error;
   }
+}
+
+/**
+ * One row per platform API call, so publishing volume is visible next to the other cost lines.
+ * Failures are recorded too: a retried upload consumed a request whether or not it landed.
+ */
+async function recordPublishCall(
+  publishingJob: { id: string; workspaceId: string; clip: { jobId: string | null }; platform: string },
+  attemptId: string,
+  platform: string,
+  succeeded: boolean,
+): Promise<void> {
+  const metadata = { publishingJobId: publishingJob.id, attemptId, platform, succeeded };
+  await prisma.usageRecord.create({
+    data: {
+      workspaceId: publishingJob.workspaceId,
+      jobId: publishingJob.clip.jobId ?? null,
+      kind: 'publish_calls',
+      quantity: 1,
+      unit: 'calls',
+      metadata,
+      costUsd: estimateCostUsd('publish_calls', 1, metadata),
+    },
+  });
 }
 
 async function publishToYouTube(

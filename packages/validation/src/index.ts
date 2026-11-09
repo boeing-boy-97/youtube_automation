@@ -128,6 +128,34 @@ export const clipListQuerySchema = paginationSchema.extend({
   platform: z.enum(['YOUTUBE', 'INSTAGRAM']).optional(),
 });
 
+// --------------------------------- usage ----------------------------------
+
+/**
+ * Usage reporting window. Defaults to the last 30 days; `from`/`to` are inclusive ISO dates so an
+ * operator can reconcile a month without knowing the server's timezone.
+ */
+const isoDateSchema = z.string().refine((v) => !Number.isNaN(Date.parse(v)), 'Must be an ISO date or datetime');
+
+export const usageSummaryQuerySchema = z
+  .object({
+    from: isoDateSchema.optional(),
+    to: isoDateSchema.optional(),
+    groupBy: z.enum(['day', 'job', 'kind']).default('kind'),
+  })
+  .refine((v) => !v.from || !v.to || new Date(v.from) <= new Date(v.to), {
+    message: '`from` must be before or equal to `to`',
+    path: ['from'],
+  });
+
+export const usageRecordsQuerySchema = paginationSchema.extend({
+  kind: z
+    .enum(['transcription_seconds', 'gemini_tokens', 'gemini_vision_tokens', 'render_seconds', 'storage_bytes', 'publish_calls'])
+    .optional(),
+  jobId: uuidSchema.optional(),
+  from: isoDateSchema.optional(),
+  to: isoDateSchema.optional(),
+});
+
 // ------------------------------- publishing -------------------------------
 
 export const publishingToggleSchema = z.object({

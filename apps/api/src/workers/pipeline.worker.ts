@@ -12,6 +12,7 @@ import { prisma, transitionJob, acquireJobLease, writeOutbox, releaseJobLease, a
 import type { Prisma } from '@prisma/client';
 import { env } from '../common/env';
 import { AppConfigService } from '../common/services/config.service';
+import { estimateCostUsd } from '../common/services/usage-cost';
 import { StorageService } from '../storage/storage.service';
 import { createRuntime, createWorker, wireShutdown, startLeaseRenewal } from './base';
 import { aiEngine, videoProcessor, ServiceCallError } from './services-client';
@@ -146,6 +147,7 @@ async function runPipeline(jobId: string): Promise<void> {
         },
         include: { segments: { orderBy: { sequence: 'asc' } } },
       });
+      const transcriptionMetadata = { model: transcription.model, provider: transcription.provider };
       await prisma.usageRecord.create({
         data: {
           workspaceId: job.workspaceId,
@@ -153,7 +155,8 @@ async function runPipeline(jobId: string): Promise<void> {
           kind: 'transcription_seconds',
           quantity: transcription.duration_seconds,
           unit: 'seconds',
-          metadata: { model: transcription.model, provider: transcription.provider },
+          metadata: transcriptionMetadata,
+          costUsd: estimateCostUsd('transcription_seconds', transcription.duration_seconds, transcriptionMetadata),
         },
       });
       await transitionJob(jobId, 'AI_ANALYSIS', {
@@ -201,16 +204,51 @@ async function runPipeline(jobId: string): Promise<void> {
       transcript: transcriptPayload,
     });
 
-    const tokens = (analysis.report.usage as { total_tokens?: number } | undefined)?.total_tokens ?? 0;
-    if (tokens > 0) {
+    // Text and vision calls are priced separately: vision batches dominate prompt tokens, and
+    // lumping them together hides which stage is expensive.
+    const usage = analysis.report.usage as
+      | {
+          total_tokens?: number;
+          text?: { prompt_tokens?: number; candidate_tokens?: number; total_tokens?: number };
+          vision?: { prompt_tokens?: number; candidate_tokens?: number; total_tokens?: number; calls?: number };
+        }
+      | undefined;
+    const textTokens = usage?.text?.total_tokens ?? 0;
+    if (textTokens > 0) {
+      const metadata = {
+        model: liveConfig.aiTextModel,
+        promptTokens: usage?.text?.prompt_tokens ?? 0,
+        candidateTokens: usage?.text?.candidate_tokens ?? 0,
+      };
       await prisma.usageRecord.create({
         data: {
           workspaceId: job.workspaceId,
           jobId,
           kind: 'gemini_tokens',
-          quantity: tokens,
+          quantity: textTokens,
           unit: 'tokens',
-          metadata: { model: liveConfig.aiTextModel },
+          metadata,
+          costUsd: estimateCostUsd('gemini_tokens', textTokens, metadata),
+        },
+      });
+    }
+    const visionTokens = usage?.vision?.total_tokens ?? 0;
+    if (visionTokens > 0) {
+      const metadata = {
+        model: liveConfig.aiVisionModel,
+        promptTokens: usage?.vision?.prompt_tokens ?? 0,
+        candidateTokens: usage?.vision?.candidate_tokens ?? 0,
+        calls: usage?.vision?.calls ?? 0,
+      };
+      await prisma.usageRecord.create({
+        data: {
+          workspaceId: job.workspaceId,
+          jobId,
+          kind: 'gemini_vision_tokens',
+          quantity: visionTokens,
+          unit: 'tokens',
+          metadata,
+          costUsd: estimateCostUsd('gemini_vision_tokens', visionTokens, metadata),
         },
       });
     }

@@ -21,6 +21,11 @@ back to a built-in value. See `.env.example` for the full annotated list.
 | Gemini | `GEMINI_API_KEY`, `GEMINI_TEXT_MODEL`, `GEMINI_VISION_MODEL` | Model ids are explicit — no alias, no default |
 | YouTube | `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_REDIRECT_URI` | Data API v3 |
 | Meta | `META_APP_ID`, `META_APP_SECRET`, `META_REDIRECT_URI`, `META_GRAPH_API_VERSION` | Version must be one of the whitelisted values (`v21.0` … `v27.0`) |
+| Usage prices | `PRICE_GEMINI_INPUT_PER_1K_TOKENS`, `PRICE_GEMINI_OUTPUT_PER_1K_TOKENS`, `PRICE_VISION_INPUT_PER_1K_TOKENS`, `PRICE_VISION_OUTPUT_PER_1K_TOKENS`, `PRICE_TRANSCRIPTION_PER_SECOND`, `PRICE_RENDER_PER_SECOND`, `PRICE_STORAGE_PER_GB_MONTH`, `PRICE_PUBLISH_CALL` | Unit economics for the usage ledger. Defaults: hosted model input `0.0001`/1k, output `0.0004`/1k, storage `0.023`/GB-month, self-hosted whisper/ffmpeg and platform publish calls `0`. Changing them does not rewrite history: each `UsageRecord` stores the cost computed when it was written |
+
+`PRICE_*` values are an estimate, never an invoice: they are applied to the quantities the platform
+measured at call time. `GET /api/usage/summary` reports `unpricedRecords` separately, so a cost of
+`0` is never silently confused with "we did not price this".
 
 `GEMINI_*`, `YOUTUBE_*` and `META_*` may be absent: the platform still runs, and the corresponding
 capability reports **awaiting credentials** in the UI and returns HTTP 428 for the operations that
