@@ -125,15 +125,7 @@ export default function ClipsPage() {
                 <div className="space-y-2">
                   <p className="text-[13px] font-medium text-ink">Platform metadata</p>
                   {detail.data!.metadata.map((meta) => (
-                    <div key={meta.platform} className="rounded-xl2 border border-line p-3 text-[13px]">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium text-ink">{meta.platform}</span>
-                        <StatusBadge value={meta.reviewStatus} />
-                      </div>
-                      <p className="mt-1 font-medium text-ink">{meta.title}</p>
-                      <p className="mt-1 whitespace-pre-wrap text-ink-soft">{meta.description}</p>
-                      {meta.hashtags.length > 0 ? <p className="mt-1 text-accent">#{meta.hashtags.join(' #')}</p> : null}
-                    </div>
+                    <MetadataEditor key={meta.platform} clipId={detail.data!.id} meta={meta} />
                   ))}
                 </div>
               ) : null}
@@ -156,6 +148,88 @@ export default function ClipsPage() {
           )}
         </Card>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Per-platform metadata is editable before publishing — the API has supported PATCH since the
+ * start, so a read-only panel left a required workflow unreachable.
+ */
+function MetadataEditor({
+  clipId,
+  meta,
+}: {
+  clipId: string;
+  meta: { platform: string; title: string | null; description: string | null; hashtags: string[]; tags: string[]; reviewStatus: string };
+}) {
+  const client = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(meta.title ?? '');
+  const [description, setDescription] = useState(meta.description ?? '');
+  const [hashtags, setHashtags] = useState(meta.hashtags.join(' '));
+  const [tags, setTags] = useState(meta.tags.join(', '));
+  const [error, setError] = useState<string | null>(null);
+
+  const save = useMutation({
+    mutationFn: () =>
+      api(`/api/clips/${clipId}/metadata`, {
+        method: 'PATCH',
+        body: {
+          platform: meta.platform,
+          title,
+          description,
+          hashtags: hashtags.split(/[\s,]+/).map((value) => value.trim()).filter(Boolean),
+          tags: tags.split(',').map((value) => value.trim()).filter(Boolean),
+        },
+      }),
+    onSuccess: () => {
+      setError(null);
+      setEditing(false);
+      void client.invalidateQueries({ queryKey: ['clip', clipId] });
+      void client.invalidateQueries({ queryKey: ['clips'] });
+    },
+    onError: (mutationError: Error) => setError(mutationError.message),
+  });
+
+  return (
+    <div className="rounded-xl2 border border-line p-3 text-[13px]">
+      <div className="flex items-center justify-between">
+        <span className="font-medium text-ink">{meta.platform}</span>
+        <span className="flex items-center gap-2">
+          <StatusBadge value={meta.reviewStatus} />
+          <button type="button" className="text-xs font-medium text-accent hover:underline" onClick={() => setEditing((value) => !value)}>
+            {editing ? 'Cancel' : 'Edit'}
+          </button>
+        </span>
+      </div>
+      {!editing ? (
+        <>
+          <p className="mt-1 font-medium text-ink">{meta.title}</p>
+          <p className="mt-1 whitespace-pre-wrap text-ink-soft">{meta.description}</p>
+          {meta.hashtags.length > 0 ? <p className="mt-1 text-accent">#{meta.hashtags.join(' #')}</p> : null}
+          {meta.tags.length > 0 ? <p className="mt-1 text-xs text-ink-faint">tags: {meta.tags.join(', ')}</p> : null}
+        </>
+      ) : (
+        <div className="mt-2 space-y-2">
+          <Field label="Title" hint={`${title.length}/100 characters`} required>
+            <input className="input !py-1.5 text-xs" value={title} maxLength={100} onChange={(event) => setTitle(event.target.value)} />
+          </Field>
+          <Field label="Description" hint={`${description.length}/5000 characters`}>
+            <textarea className="input min-h-[80px] !py-1.5 text-xs" value={description} maxLength={5000} onChange={(event) => setDescription(event.target.value)} />
+          </Field>
+          <Field label="Hashtags" hint="Space or comma separated, with or without #">
+            <input className="input !py-1.5 text-xs" value={hashtags} onChange={(event) => setHashtags(event.target.value)} />
+          </Field>
+          <Field label="Tags" hint="Comma separated keywords">
+            <input className="input !py-1.5 text-xs" value={tags} onChange={(event) => setTags(event.target.value)} />
+          </Field>
+          {error ? <ErrorState message={error} /> : null}
+          <button type="button" className="btn-primary !px-3 !py-1.5 text-xs" onClick={() => save.mutate()} disabled={save.isPending || !title.trim()}>
+            {save.isPending ? 'Saving…' : 'Save metadata'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

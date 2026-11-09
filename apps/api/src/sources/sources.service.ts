@@ -100,8 +100,19 @@ export class SourcesService {
     };
   }
 
-  /** Local driver only: append a received part to the staging file. */
-  async receivePart(sourceVideoId: string, partNumber: number, buffer: Buffer, ctx: RequestContext): Promise<{ receivedBytes: number }> {
+  /**
+   * Local driver only: store one part at its deterministic offset.
+   *
+   * The part number is authoritative, so retries and out-of-order delivery are harmless. The
+   * declared filename size is enforced against the bytes actually written, which stops a client
+   * from declaring a small file and then streaming an unbounded amount to disk.
+   */
+  async receivePart(
+    sourceVideoId: string,
+    partNumber: number,
+    buffer: Buffer,
+    ctx: RequestContext,
+  ): Promise<{ receivedBytes: number; declaredBytes: number; partNumber: number }> {
     if (this.storage.driver !== 'local') {
       throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'Part uploads are only used with the local storage driver' });
     }
@@ -109,9 +120,35 @@ export class SourcesService {
     if (!source) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Source not found' });
     if (source.status !== 'INITIATED') throw new BadRequestException({ code: 'VALIDATION_FAILED', message: `Upload is already ${source.status}` });
     if (!Number.isInteger(partNumber) || partNumber < 1) throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'partNumber must be >= 1' });
+    if (!source.sizeBytes) throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'Upload has no declared size' });
 
-    const received = await this.storage.appendLocalPart(this.stagingPath(sourceVideoId), buffer);
-    return { receivedBytes: received };
+    const declaredBytes = Number(source.sizeBytes);
+    const partCount = Math.max(1, Math.ceil(declaredBytes / PART_SIZE_BYTES));
+    if (partNumber > partCount) {
+      throw new BadRequestException({
+        code: 'VALIDATION_FAILED',
+        message: `partNumber ${partNumber} exceeds the ${partCount} part(s) declared for a ${declaredBytes}-byte upload`,
+      });
+    }
+
+    const offset = (partNumber - 1) * PART_SIZE_BYTES;
+    if (offset + buffer.length > declaredBytes) {
+      throw new BadRequestException({
+        code: 'VALIDATION_FAILED',
+        message: `Part ${partNumber} would write ${offset + buffer.length} bytes, above the declared ${declaredBytes} bytes`,
+      });
+    }
+
+    const written = await this.storage.writeLocalPartAt(this.stagingPath(sourceVideoId), offset, buffer);
+    if (written > declaredBytes) {
+      // Belt and braces: never leave more bytes on disk than the client declared.
+      await rm(this.stagingPath(sourceVideoId), { force: true });
+      throw new BadRequestException({
+        code: 'VALIDATION_FAILED',
+        message: `Staged upload grew to ${written} bytes, above the declared ${declaredBytes} bytes; upload discarded`,
+      });
+    }
+    return { receivedBytes: written, declaredBytes, partNumber };
   }
 
   async completeUpload(
@@ -134,6 +171,14 @@ export class SourcesService {
       const info = await stat(staging).catch(() => null);
       if (!info || info.size === 0) {
         throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'No uploaded bytes found for this source' });
+      }
+      const declared = source.sizeBytes ? Number(source.sizeBytes) : 0;
+      if (declared > 0 && info.size !== declared) {
+        // A missing part leaves a sparse hole, so only an exact size match proves completeness.
+        throw new BadRequestException({
+          code: 'VALIDATION_FAILED',
+          message: `Upload is incomplete: ${info.size} of ${declared} bytes were received. Retry the missing part(s).`,
+        });
       }
       sizeBytes = info.size;
       localPathForProbe = staging;

@@ -75,7 +75,9 @@ export const JOB_TRANSITIONS: Record<JobState, JobState[]> = {
   FAILED: ['RETRYING'],
   CANCELLED: [],
   NEEDS_CONFIGURATION: ['RETRYING', 'CANCELLED'],
-  RETRYING: PIPELINE_STATES.filter((s) => s !== 'CREATED' && s !== 'COMPLETED'),
+  // RETRYING can always fail or be cancelled: a retry whose resume point cannot be planned, or
+  // whose budget is exhausted while it sits in RETRYING, must not be stranded there forever.
+  RETRYING: [...PIPELINE_STATES.filter((s) => s !== 'CREATED' && s !== 'COMPLETED'), 'FAILED', 'CANCELLED', 'NEEDS_CONFIGURATION'],
 };
 
 export function canTransition(from: JobState, to: JobState): boolean {

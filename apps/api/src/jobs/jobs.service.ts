@@ -2,6 +2,9 @@ import { BadRequestException, ConflictException, Injectable, Logger, NotFoundExc
 import { prisma, writeOutbox, transitionJob, appendAuditLog, ConfigurationRequiredError } from '@clipforge/database';
 import type { CreateJobInput } from '@clipforge/validation';
 import { PIPELINE_STATES, type JobState } from '@clipforge/shared-types';
+
+// Concrete pipeline stages a retry may resume from (the array type is the full union).
+const PIPELINE_STAGES: readonly JobState[] = PIPELINE_STATES;
 import { AppConfigService } from '../common/services/config.service';
 import type { RequestContext } from '../common/guards/session-auth.guard';
 
@@ -251,7 +254,14 @@ export class JobsService {
       throw error;
     }
 
-    const lastSuccessful = (job.stages.filter((s) => s.stage !== 'QUEUED').at(-1)?.stage ?? 'PROBING') as JobState;
+    // Only real pipeline stages count as a resume point. Control/terminal rows (FAILED, RETRYING,
+    // CANCELLED…) are also written as "SUCCEEDED" JobStage entries, and resuming from one of those
+    // produced an illegal RETRYING -> FAILED transition (HTTP 500) on every retry.
+    const resumeCandidates = job.stages
+      .filter((stage) => stage.status === 'SUCCEEDED' && PIPELINE_STAGES.includes(stage.stage as JobState))
+      .filter((stage) => stage.stage !== 'QUEUED')
+      .map((stage) => stage.stage as JobState);
+    const lastSuccessful: JobState = resumeCandidates.at(-1) ?? 'PROBING';
     await transitionJob(id, 'RETRYING', { errorCode: null, errorMessage: null, progressDetail: 'Manual retry requested' });
     await transitionJob(id, lastSuccessful, {
       progressDetail: `Retrying from ${lastSuccessful}`,

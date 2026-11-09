@@ -1,7 +1,7 @@
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
-import { PUBLIC_ROUTE } from '../decorators/auth.decorators';
+import { PUBLIC_ROUTE, ROLES } from '../decorators/auth.decorators';
 import { SessionService, type AuthenticatedSession } from '../../auth/session.service';
 
 export interface RequestContext extends AuthenticatedSession {
@@ -36,6 +36,17 @@ export class SessionAuthGuard implements CanActivate {
       ip: request.ip ?? '',
       userAgent: request.get('user-agent') ?? null,
     };
+
+    const requiredRoles = this.reflector.getAllAndOverride<Array<'OWNER' | 'ADMIN' | 'MEMBER'>>(ROLES, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (requiredRoles?.length && !requiredRoles.includes(session.role)) {
+      throw new ForbiddenException({
+        code: 'FORBIDDEN',
+        message: `This action requires one of: ${requiredRoles.join(', ')}. Your role is ${session.role}.`,
+      });
+    }
     return true;
   }
 }

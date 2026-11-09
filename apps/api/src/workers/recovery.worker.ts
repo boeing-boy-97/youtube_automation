@@ -5,7 +5,7 @@
  * checks whether the previous stage actually completed (by inspecting its durable
  * artefacts, not assumptions), then resumes from the last successful stage.
  */
-import { prisma, transitionJob, writeOutbox, releaseJobLease } from '@clipforge/database';
+import { prisma, transitionJob, writeOutbox, releaseJobLease, appendAuditLog } from '@clipforge/database';
 import { findAbandonedJobs } from '@clipforge/database';
 import { env } from '../common/env';
 import { createRuntime, wireShutdown } from './base';
@@ -56,6 +56,29 @@ async function sweep(): Promise<void> {
     const recoverable = ['PROBING', 'TRANSCRIBING', 'AI_ANALYSIS', 'CLIP_SELECTION', 'RENDERING', 'VALIDATION', 'ASSET_STORAGE', 'PUBLISHING_QUEUED'];
     if (!recoverable.includes(resumeFrom)) continue;
 
+    // Never sweep forever: the retry budget is finite and is consumed on each RETRYING entry.
+    if (job.attempt >= job.maxAttempts) {
+      runtime.logger.error(`job ${job.id} exhausted ${job.maxAttempts} attempt(s); marking FAILED`);
+      try {
+        await transitionJob(job.id, 'FAILED', {
+          errorCode: 'RETRY_BUDGET_EXHAUSTED',
+          errorMessage: `Worker loss recovery exhausted all ${job.maxAttempts} attempt(s) at stage ${job.stage}`,
+          progressDetail: `Failed after ${job.attempt} attempt(s)`,
+        });
+        await appendAuditLog({
+          workspaceId: job.workspaceId,
+          userId: job.createdById,
+          action: 'JOB_STAGE_CHANGED',
+          targetType: 'ProcessingJob',
+          targetId: job.id,
+          summary: `Job failed: retry budget exhausted after worker loss at ${job.stage}`,
+        });
+      } catch (error) {
+        runtime.logger.error(`could not fail exhausted job ${job.id}: ${(error as Error).message}`);
+      }
+      continue;
+    }
+
     runtime.logger.warn(`reclaiming abandoned job ${job.id} (stage=${job.stage}, resume=${resumeFrom})`);
     try {
       await transitionJob(job.id, 'RETRYING', {
@@ -83,6 +106,20 @@ async function sweep(): Promise<void> {
     take: 20,
   });
   for (const publishingJob of stuckPublishing) {
+    if (publishingJob.attempt >= publishingJob.maxAttempts) {
+      runtime.logger.error(`publishing job ${publishingJob.id} exhausted ${publishingJob.maxAttempts} attempt(s); marking FAILED`);
+      await prisma.publishingJob.update({
+        where: { id: publishingJob.id },
+        data: {
+          status: 'FAILED',
+          retryable: false,
+          errorCode: 'RETRY_BUDGET_EXHAUSTED',
+          errorMessage: `Publishing stalled at ${publishingJob.status}; ${publishingJob.attempt} attempt(s) exhausted`,
+          completedAt: new Date(),
+        },
+      });
+      continue;
+    }
     runtime.logger.warn(`reclaiming stalled publishing job ${publishingJob.id}`);
     await prisma.$transaction(async (tx) => {
       await tx.publishingJob.update({

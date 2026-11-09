@@ -59,7 +59,7 @@ export function Shell({ children }: { children: ReactNode }) {
           </div>
         </div>
         <nav className="flex-1 space-y-0.5 px-3">
-          {NAV.map((item) => {
+          {NAV.filter((item) => item.href !== '/admin' || ['OWNER', 'ADMIN'].includes(session.user?.role ?? '')).map((item) => {
             const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
             return (
               <Link

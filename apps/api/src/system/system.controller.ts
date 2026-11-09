@@ -1,10 +1,12 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { CurrentContext, Public } from '../common/decorators/auth.decorators';
+import { CurrentContext, Public, Roles } from '../common/decorators/auth.decorators';
 import type { RequestContext } from '../common/guards/session-auth.guard';
 import { SystemService } from './system.service';
 
 @ApiTags('system')
+// Operator-only surface: worker/queue internals are not member-facing data.
+@Roles('OWNER', 'ADMIN')
 @Controller('api/system')
 export class SystemController {
   constructor(private readonly system: SystemService) {}

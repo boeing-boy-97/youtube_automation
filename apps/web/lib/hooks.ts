@@ -12,6 +12,7 @@ export interface ComponentHealth {
 
 export interface SessionResponse {
   authenticated: boolean;
+  selfRegistrationEnabled?: boolean;
   csrfToken?: string;
   user?: { id: string; email: string; displayName: string; role: string };
   workspace?: { id: string; name: string; slug: string; timezone: string | null };
@@ -50,6 +51,18 @@ export function useBootstrap() {
   return useMutation({
     mutationFn: (input: { bootstrapToken: string; email: string; password: string; displayName: string; workspaceName: string }) =>
       api<{ csrfToken: string }>('/api/auth/bootstrap', { method: 'POST', body: input }),
+    onSuccess: async (data) => {
+      setCsrfToken(data.csrfToken);
+      await client.invalidateQueries({ queryKey: ['session'] });
+    },
+  });
+}
+
+export function useRegister() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { email: string; password: string; displayName: string; workspaceName: string }) =>
+      api<{ csrfToken: string }>('/api/auth/register', { method: 'POST', body: input }),
     onSuccess: async (data) => {
       setCsrfToken(data.csrfToken);
       await client.invalidateQueries({ queryKey: ['session'] });
@@ -280,6 +293,13 @@ export interface SystemOverview {
   uptimeSeconds: number;
 }
 
-export function useSystemOverview() {
-  return useQuery({ queryKey: ['system'], queryFn: () => api<SystemOverview>('/api/system/overview'), refetchInterval: 10_000 });
+export function useSystemOverview(enabled = true) {
+  return useQuery({
+    queryKey: ['system'],
+    queryFn: () => api<SystemOverview>('/api/system/overview'),
+    refetchInterval: 10_000,
+    // Operator-only endpoint: members must not hammer it just to render a "forbidden" state.
+    enabled,
+    retry: false,
+  });
 }

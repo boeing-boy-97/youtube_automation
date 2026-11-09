@@ -147,7 +147,13 @@ async function publishToYouTube(
     madeForKids?: boolean;
     defaultLanguage?: string;
   };
-  if (!config.visibility)	throw new PlatformError('YouTube visibility was never configured for this account', 'YOUTUBE', 'PERMANENT');
+  // Publishing settings must be explicit: a guessed privacy status or category would publish
+  // content under terms the operator never chose.
+  if (!config.visibility) throw new PlatformError('YouTube visibility was never configured for this account', 'YOUTUBE', 'PERMANENT');
+  if (!config.categoryId) throw new PlatformError('YouTube categoryId was never configured for this account', 'YOUTUBE', 'PERMANENT');
+  if (typeof config.madeForKids !== 'boolean') {
+    throw new PlatformError('YouTube madeForKids was never configured for this account', 'YOUTUBE', 'PERMANENT');
+  }
 
   const { accessToken } = await accounts.getAccessToken(publishingJob!.connectedAccountId);
   const connector = accounts.youtubeConnector();
@@ -181,9 +187,9 @@ async function publishToYouTube(
     title: metadata.title ?? publishingJob!.clip.title,
     description,
     tags: metadata.tags,
-    categoryId: config.categoryId ?? '22',
-    privacyStatus: (config.visibility ?? 'private').toLowerCase() as 'public' | 'unlisted' | 'private',
-    madeForKids: config.madeForKids ?? false,
+    categoryId: config.categoryId,
+    privacyStatus: config.visibility.toLowerCase() as 'public' | 'unlisted' | 'private',
+    madeForKids: config.madeForKids,
     defaultLanguage: config.defaultLanguage ?? metadata.language,
   });
 

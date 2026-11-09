@@ -4,6 +4,12 @@ Date: **2026-11-09** (Asia/Kolkata). Environment: single-node Linux sandbox — 
 Redis 7, Node 20.20.2, Python 3.13.16, FFmpeg 7.1.5. Nothing below is projected or estimated: every
 result is a command that was executed and its actual output.
 
+> **Audit round note (2026-11-09):** a later independent audit re-tested this system from scratch and
+> found nine defects that this report had not caught — including byte-range seeking, out-of-order
+> multipart upload, the retry budget, job retry returning HTTP 500 and brand-asset upload. All were
+> fixed and re-verified. Read `docs/IMPLEMENTATION_STATUS.md` for the current, authoritative status;
+> where the two documents differ, that one wins.
+
 ## Deployment URL
 
 **None.** This sandbox has no Docker daemon and no cloud account, so no public deployment exists and

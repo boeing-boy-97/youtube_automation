@@ -22,6 +22,9 @@ export const envSchema = z.object({
   CREDENTIAL_ENCRYPTION_KEY: z.string().min(1),
   SESSION_SECRET: z.string().min(32),
   ADMIN_BOOTSTRAP_TOKEN: z.string().min(32),
+  // Self-service signup is opt-in. A platform that hosts a single organisation must not expose
+  // an endpoint that lets anyone on the internet mint a workspace, so the default is 'false'.
+  ALLOW_SELF_REGISTRATION: bool.default('false'),
 
   STORAGE_DRIVER: z.enum(['local', 's3']),
   STORAGE_LOCAL_ROOT: z.string().optional(),

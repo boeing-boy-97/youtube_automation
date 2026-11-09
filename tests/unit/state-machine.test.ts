@@ -76,3 +76,15 @@ describe('job state machine', () => {
     expect(canTransition('PROBING', 'PUBLISHING')).toBe(false);
   });
 });
+
+describe('RETRYING is never a dead end', () => {
+  it('allows a job stuck in RETRYING to fail, cancel or wait for configuration', () => {
+    // A retry that cannot be planned (resume point missing) or whose budget is exhausted while it
+    // sits in RETRYING must be able to leave that state — otherwise it is stranded forever.
+    expect(canTransition('RETRYING', 'FAILED')).toBe(true);
+    expect(canTransition('RETRYING', 'CANCELLED')).toBe(true);
+    expect(canTransition('RETRYING', 'NEEDS_CONFIGURATION')).toBe(true);
+    expect(canTransition('RETRYING', 'PROBING')).toBe(true);
+    expect(canTransition('RETRYING', 'RENDERING')).toBe(true);
+  });
+});

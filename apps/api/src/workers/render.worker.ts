@@ -24,6 +24,7 @@ interface JobConfig {
   manualOffsetX?: number;
   autoPublish: boolean;
   platforms: Array<'YOUTUBE' | 'INSTAGRAM'>;
+  brandProfileId?: string;
 }
 
 async function handler(job: { data: { clipId: string; jobId: string } }): Promise<void> {
@@ -90,9 +91,14 @@ async function renderClip(clipId: string, jobId: string): Promise<void> {
     throw new Error(`Clip ${clipId} window contains no transcript words`);
   }
 
-  const brandProfile = await prisma.brandProfile.findFirst({
-    where: { workspaceId: clip.workspaceId, isDefault: true },
-  });
+  // A job may select a brand profile explicitly; only fall back to the workspace default when the
+  // job did not choose one. (Ignoring the selection silently applied the wrong branding.)
+  const brandProfile = configuration.brandProfileId
+    ? await prisma.brandProfile.findFirst({ where: { id: configuration.brandProfileId, workspaceId: clip.workspaceId } })
+    : await prisma.brandProfile.findFirst({ where: { workspaceId: clip.workspaceId, isDefault: true } });
+  if (configuration.brandProfileId && !brandProfile) {
+    throw new Error(`Brand profile ${configuration.brandProfileId} no longer exists — fix the job configuration before rendering`);
+  }
   let watermarkPath: string | null = null;
   if (brandProfile?.logoStorageKey) {
     watermarkPath = join(workDir, `logo-${brandProfile.id}`);

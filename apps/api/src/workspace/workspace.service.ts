@@ -1,11 +1,67 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { extname } from 'node:path';
 import { appendAuditLog, ConfigurationService, prisma } from '@clipforge/database';
 import { CONFIG_KEYS, REQUIRED_FOR_PROCESSING, REQUIRED_FOR_PUBLISHING } from '@clipforge/shared-types';
 import type { BrandProfileInput, SubtitlePresetInput } from '@clipforge/validation';
 import type { RequestContext } from '../common/guards/session-auth.guard';
+import { StorageService } from '../storage/storage.service';
+
+const BRAND_ASSETS = {
+  LOGO: { maxBytes: 8 * 1024 * 1024, mimeTypes: ['image/png', 'image/jpeg', 'image/webp'], fallbackExt: '.png' },
+  INTRO: { maxBytes: 64 * 1024 * 1024, mimeTypes: ['video/mp4'], fallbackExt: '.mp4' },
+  OUTRO: { maxBytes: 64 * 1024 * 1024, mimeTypes: ['video/mp4'], fallbackExt: '.mp4' },
+} as const;
 
 @Injectable()
 export class WorkspaceService {
+  constructor(private readonly storage: StorageService) {}
+
+  /**
+   * Stores a brand asset and returns the storage key the render pipeline will download from.
+   * The key is workspace-scoped, so one workspace can never point a profile at someone else's file.
+   */
+  async uploadBrandAsset(
+    kind: string,
+    file: Express.Multer.File,
+    ctx: RequestContext,
+  ): Promise<{ kind: string; storageKey: string; sizeBytes: number; mimeType: string }> {
+    const spec = BRAND_ASSETS[kind.toUpperCase() as keyof typeof BRAND_ASSETS];
+    if (!spec) {
+      throw new BadRequestException({ code: 'VALIDATION_FAILED', message: `kind must be one of ${Object.keys(BRAND_ASSETS).join(', ')}` });
+    }
+    if (!spec.mimeTypes.includes(file.mimetype as never)) {
+      throw new BadRequestException({
+        code: 'VALIDATION_FAILED',
+        message: `${kind.toUpperCase()} must be one of ${spec.mimeTypes.join(', ')} (received ${file.mimetype})`,
+      });
+    }
+    if (file.size > spec.maxBytes) {
+      throw new BadRequestException({
+        code: 'VALIDATION_FAILED',
+        message: `${kind.toUpperCase()} must be at most ${Math.round(spec.maxBytes / 1024 / 1024)}MB`,
+      });
+    }
+    const extension = extname(file.originalname || '').toLowerCase() || spec.fallbackExt;
+    const storageKey = `ws/${ctx.workspaceId}/brand/${kind.toLowerCase()}-${randomUUID()}${extension}`;
+    await this.storage.putBuffer(storageKey, file.buffer, file.mimetype);
+    try {
+      await appendAuditLog({
+        workspaceId: ctx.workspaceId,
+        userId: ctx.userId,
+        action: 'BRAND_ASSET_UPLOADED',
+        targetType: 'BrandProfile',
+        targetId: storageKey,
+        summary: `Uploaded ${kind.toUpperCase()} asset (${(file.size / 1024).toFixed(0)}KB, ${file.mimetype})`,
+      });
+    } catch (error) {
+      // Never leave an unaudited object behind.
+      await this.storage.delete(storageKey).catch(() => undefined);
+      throw error;
+    }
+    return { kind: kind.toUpperCase(), storageKey, sizeBytes: file.size, mimeType: file.mimetype };
+  }
+
   async configuration(ctx: RequestContext) {
     const resolved = await new ConfigurationService(ctx.workspaceId).load();
     const presets = await prisma.subtitlePreset.findMany({
@@ -100,7 +156,7 @@ export class WorkspaceService {
     await appendAuditLog({
       workspaceId: ctx.workspaceId,
       userId: ctx.userId,
-      action: 'CONFIG_CHANGED',
+      action: 'BRAND_PROFILE_CREATED',
       targetType: 'BrandProfile',
       targetId: profile.id,
       summary: `Brand profile "${profile.name}" created`,

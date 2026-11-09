@@ -71,6 +71,32 @@ export interface UploadProgress {
 }
 
 /** Chunked upload through the API with the rights declaration sent at completion. */
+export interface BrandAssetResult {
+  kind: 'LOGO' | 'INTRO' | 'OUTRO';
+  storageKey: string;
+  sizeBytes: number;
+  mimeType: string;
+}
+
+/** Uploads a logo / intro / outro file and returns the storage key to save on the brand profile. */
+export async function uploadBrandAsset(file: File, kind: BrandAssetResult['kind']): Promise<BrandAssetResult> {
+  const form = new FormData();
+  form.append('file', file, file.name);
+  const csrf = await ensureCsrf();
+  const response = await fetch(`/api/brand-assets?kind=${kind}`, {
+    method: 'POST',
+    body: form,
+    credentials: 'include',
+    headers: { 'x-csrf-token': csrf },
+  });
+  const text = await response.text();
+  const payload = safeJson(text) as { error?: { message?: string; code?: string } } & BrandAssetResult;
+  if (!response.ok) {
+    throw new ApiError(payload.error?.message ?? `Upload failed with HTTP ${response.status}`, response.status, payload.error?.code ?? 'UPLOAD_FAILED');
+  }
+  return payload;
+}
+
 export async function uploadSource(
   file: File,
   options: { youTubeReferenceUrl?: string; rightsStatement: string; onProgress?: (progress: UploadProgress) => void },

@@ -64,6 +64,23 @@ an API stall — that is CPU saturation, not a defect.
   directly and re-probes every rendered file (resolution, codecs, duration).
 * `infrastructure/scripts/healthcheck.sh` — dependency smoke test.
 
+## Preconditions for the integration suite
+
+`npm run test:integration` talks to the same PostgreSQL/Redis the running stack uses, and one case
+asserts it is the *only* consumer that claims a freshly written outbox row. **Stop the workers before
+running it**, otherwise a live worker can legitimately claim the row first and the assertion fails for
+environmental reasons:
+
+```bash
+pkill -f "dist/workers/"      # or stop them however you launched them
+npm run test:integration      # 14 tests
+```
+
+Rounds run in this repository: **38 unit tests**, **14 integration tests**, and the E2E workflow.
+Newest cases cover three defects found in the audit round (see `IMPLEMENTATION_STATUS.md`):
+ranged reads honour byte offsets, multipart parts are order-independent and idempotent, and `attempt`
+counts retries rather than lease acquisitions.
+
 ## Blocked-by-credentials tests
 
 Anything that needs a third party is marked **BLOCKED — awaiting credentials** rather than skipped

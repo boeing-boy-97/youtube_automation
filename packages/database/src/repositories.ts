@@ -92,6 +92,8 @@ export async function transitionJob(jobId: string, to: JobState, options: Transi
       data: {
         status: to,
         stage: to,
+        // One RETRYING transition == one consumed retry attempt.
+        ...(to === 'RETRYING' ? { attempt: { increment: 1 } } : {}),
         ...(options.progressPercent !== undefined ? { progressPercent: options.progressPercent } : {}),
         ...(options.progressDetail !== undefined ? { progressDetail: options.progressDetail } : {}),
         ...(options.workerId !== undefined ? { workerId: options.workerId } : {}),
@@ -161,7 +163,10 @@ export async function acquireJobLease(jobId: string, workerId: string, leaseSeco
       OR: [{ workerId: null }, { workerId }, { leaseExpiresAt: { lt: now } }],
       status: { notIn: ['COMPLETED', 'CANCELLED', 'PARTIALLY_COMPLETED'] },
     },
-    data: { workerId, leaseExpiresAt: expires, heartbeatAt: now, attempt: { increment: 1 } },
+    // NOTE: `attempt` is the retry counter, not a lease counter. Incrementing it here made a
+    // healthy job burn its whole retry budget just by moving between pipeline and render workers,
+    // so a single transient failure then exhausted maxAttempts immediately.
+    data: { workerId, leaseExpiresAt: expires, heartbeatAt: now },
   });
   return result.count === 1;
 }

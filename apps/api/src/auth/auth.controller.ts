@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Post, Req, Res } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { bootstrapSchema, loginSchema, registerSchema } from '@clipforge/validation';
@@ -56,9 +56,15 @@ export class AuthController {
 
   @Post('register')
   @Public()
-  @SkipCsrf()
   @RateLimit({ limit: 5, windowSeconds: 300, scope: 'auth-register' })
   async register(@Body() body: unknown, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    if (!env.ALLOW_SELF_REGISTRATION) {
+      // Explicitly closed by default: an operator must opt in with ALLOW_SELF_REGISTRATION=true.
+      throw new ForbiddenException({
+        code: 'FORBIDDEN',
+        message: 'Self-service registration is disabled on this deployment. Ask an administrator for an account.',
+      });
+    }
     const result = await this.auth.register(registerSchema.parse(body), req);
     this.setSessionCookies(res, result.rawToken);
     return { csrfToken: result.csrfToken, userId: result.userId, workspaceId: result.workspaceId };
@@ -86,9 +92,10 @@ export class AuthController {
   @ApiOperation({ summary: 'Current session, workspace, configuration readiness and integration status' })
   async session(@Req() req: Request) {
     const raw = req.cookies?.[SessionService.COOKIE_NAME] as string | undefined;
-    if (!raw) return { authenticated: false };
+    // The login screen needs this before it can render a "create account" option.
+    if (!raw) return { authenticated: false, selfRegistrationEnabled: env.ALLOW_SELF_REGISTRATION };
     const session = await this.sessions.validate(raw, req);
-    if (!session) return { authenticated: false };
+    if (!session) return { authenticated: false, selfRegistrationEnabled: env.ALLOW_SELF_REGISTRATION };
     const description = await this.auth.describeSession({ userId: session.userId, workspaceId: session.workspaceId });
     const csrf = this.sessions.reissueCsrf(session.sessionId);
     return { authenticated: true, ...description, csrfToken: csrf };

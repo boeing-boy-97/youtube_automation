@@ -2,12 +2,14 @@
 
 import Link from 'next/link';
 import { Card, CardHeader, EmptyState, ErrorState, ProgressBar, Section, Skeleton, StatCard, StatusBadge } from '@/components/ui';
-import { useDashboard, useSystemOverview } from '@/lib/hooks';
+import { useDashboard, useSession, useSystemOverview } from '@/lib/hooks';
 import { formatDuration, formatRelative } from '@/lib/api';
 
 export default function DashboardPage() {
   const dashboard = useDashboard();
-  const system = useSystemOverview();
+  const session = useSession();
+  const isOperator = ['OWNER', 'ADMIN'].includes(session.data?.user?.role ?? '');
+  const system = useSystemOverview(isOperator);
 
   if (dashboard.isLoading) {
     return (
@@ -104,7 +106,11 @@ export default function DashboardPage() {
         </Card>
 
         <Card>
-          <CardHeader title="System health" description="Measured from the running services" action={<Link href="/admin" className="text-[13px] font-medium text-accent hover:underline">Details</Link>} />
+          <CardHeader
+            title="System health"
+            description="Measured from the running services"
+            action={isOperator ? <Link href="/admin" className="text-[13px] font-medium text-accent hover:underline">Details</Link> : undefined}
+          />
           <div className="space-y-2 px-5 py-4">
             {system.data ? (
               <>
@@ -125,6 +131,10 @@ export default function DashboardPage() {
                   </div>
                 ))}
               </>
+            ) : !isOperator ? (
+              <p className="text-[13px] text-ink-soft">Service health is visible to workspace owners and admins.</p>
+            ) : system.error ? (
+              <p className="text-[13px] text-ink-soft">{system.error.message}</p>
             ) : (
               <Skeleton rows={4} />
             )}

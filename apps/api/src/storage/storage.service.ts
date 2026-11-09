@@ -12,6 +12,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createReadStream, createWriteStream } from 'node:fs';
+import { open } from 'node:fs/promises';
 import { mkdir, rm, stat } from 'node:fs/promises';
 import { dirname, join, normalize, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -127,6 +128,38 @@ export class StorageService {
     return { stream: createReadStream(target), contentLength: info.size };
   }
 
+  /** Object size without opening a body stream (needed to answer Range requests). */
+  async statSize(key: string): Promise<number> {
+    this.assertSafeKey(key);
+    if (this.driver === 's3') {
+      const out = await this.s3!.send(new HeadObjectCommand({ Bucket: env.S3_BUCKET!, Key: key }));
+      if (typeof out.ContentLength !== 'number') throw new Error(`Object ${key} has no content length`);
+      return out.ContentLength;
+    }
+    return (await stat(this.localPath(key))).size;
+  }
+
+  /**
+   * Streams an explicit byte range. Byte offsets are honoured by the storage layer itself —
+   * returning the head of the file with a 206 status (which a client cannot detect until it
+   * decodes the media) would silently break seeking.
+   */
+  async getStreamRange(key: string, start: number, end: number): Promise<{ stream: Readable; contentLength: number }> {
+    this.assertSafeKey(key);
+    if (this.driver === 's3') {
+      const out = await this.s3!.send(
+        new GetObjectCommand({ Bucket: env.S3_BUCKET!, Key: key, Range: `bytes=${start}-${end}` }),
+      );
+      const length = out.ContentLength ?? end - start + 1;
+      return { stream: out.Body as Readable, contentLength: length };
+    }
+    const target = this.localPath(key);
+    const info = await stat(target);
+    const from = Math.max(0, Math.min(start, info.size - 1));
+    const to = Math.max(from, Math.min(end, info.size - 1));
+    return { stream: createReadStream(target, { start: from, end: to }), contentLength: to - from + 1 };
+  }
+
   /** Downloads an object to a local temp path — required by FFmpeg and upload APIs. */
   async downloadToFile(key: string, destination: string): Promise<number> {
     const { stream } = await this.getStream(key);
@@ -237,10 +270,29 @@ export class StorageService {
   }
 
   /** Local-driver helper: append a received part to the staging file. */
-  async appendLocalPart(stagingPath: string, buffer: Buffer): Promise<number> {
+  /**
+   * Writes one upload part at its deterministic offset `(partNumber - 1) * partSize`.
+   *
+   * Parts arrive over independent HTTP requests and may be retried, reordered or lost. Appending
+   * would corrupt the file in every one of those cases; writing at an offset makes each part
+   * idempotent and order-independent. Sparse holes are detected at completion because the final
+   * size must equal the declared size.
+   */
+  async writeLocalPartAt(stagingPath: string, offset: number, buffer: Buffer): Promise<number> {
     await mkdir(dirname(stagingPath), { recursive: true });
-    await pipeline(Readable.from(buffer), createWriteStream(stagingPath, { flags: 'a' }));
-    return (await stat(stagingPath)).size;
+    // 'a+' would force every write to the end of the file (POSIX append semantics), which is
+    // exactly the corruption we are removing — use a positional handle instead.
+    const handle = await open(stagingPath, 'r+').catch(async (error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error;
+      return open(stagingPath, 'w+');
+    });
+    try {
+      await handle.write(buffer, 0, buffer.length, offset);
+      const { size } = await handle.stat();
+      return size;
+    } finally {
+      await handle.close();
+    }
   }
 
   async expectPublicHttps(): Promise<{ ok: boolean; reason?: string }> {

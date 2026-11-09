@@ -2,6 +2,9 @@
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+import { api } from '@/lib/api';
 import { useJob } from '@/lib/hooks';
 import { Card, CardHeader, EmptyState, ErrorState, ProgressBar, Skeleton, StatusBadge } from '@/components/ui';
 import { formatDuration, formatRelative } from '@/lib/api';
@@ -9,6 +12,28 @@ import { formatDuration, formatRelative } from '@/lib/api';
 export default function JobDetailPage() {
   const params = useParams<{ id: string }>();
   const job = useJob(params.id);
+  const client = useQueryClient();
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  // Retry / cancel are real operator actions, so they live in the UI rather than only in the API.
+  const retry = useMutation({
+    mutationFn: () => api(`/api/jobs/${params.id}/retry`, { method: 'POST' }),
+    onSuccess: () => {
+      setActionError(null);
+      void client.invalidateQueries({ queryKey: ['job', params.id] });
+      void client.invalidateQueries({ queryKey: ['jobs'] });
+    },
+    onError: (error: Error) => setActionError(error.message),
+  });
+  const cancel = useMutation({
+    mutationFn: () => api(`/api/jobs/${params.id}/cancel`, { method: 'POST' }),
+    onSuccess: () => {
+      setActionError(null);
+      void client.invalidateQueries({ queryKey: ['job', params.id] });
+      void client.invalidateQueries({ queryKey: ['jobs'] });
+    },
+    onError: (error: Error) => setActionError(error.message),
+  });
 
   if (job.isLoading) return <div className="grid gap-4"><Card><Skeleton rows={6} /></Card></div>;
   if (job.error) return <ErrorState message={job.error.message} onRetry={() => void job.refetch()} />;
@@ -25,11 +50,23 @@ export default function JobDetailPage() {
             Job {data.id.slice(0, 8)} · attempt {data.attempt} of {data.maxAttempts} · {formatDuration(data.source.durationSeconds)} source
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <StatusBadge value={data.status} />
           {data.clipCount > 0 ? <Link href="/clips" className="btn-secondary">View {data.clipCount} clip(s)</Link> : null}
+          {['FAILED', 'PARTIALLY_COMPLETED', 'CANCELLED'].includes(data.status) ? (
+            <button type="button" className="btn-secondary" onClick={() => retry.mutate()} disabled={retry.isPending}>
+              {retry.isPending ? 'Queueing…' : 'Retry job'}
+            </button>
+          ) : null}
+          {!terminal ? (
+            <button type="button" className="btn-secondary" onClick={() => cancel.mutate()} disabled={cancel.isPending}>
+              {cancel.isPending ? 'Cancelling…' : 'Cancel job'}
+            </button>
+          ) : null}
         </div>
       </div>
+
+      {actionError ? <ErrorState code="ACTION_FAILED" message={actionError} /> : null}
 
       {data.errorMessage ? (
         <ErrorState code={data.errorCode ?? 'PIPELINE_ERROR'} message={data.errorMessage} />

@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { api } from '@/lib/api';
+import { api, uploadBrandAsset } from '@/lib/api';
 import { useConfiguration } from '@/lib/hooks';
 import { Badge, Card, CardHeader, EmptyState, ErrorState, Field, Section, Skeleton, Toast } from '@/components/ui';
 
@@ -26,7 +26,13 @@ export default function BrandPage() {
     fontFamily: '',
     watermarkPosition: 'bottom-right',
     isDefault: false,
+    logoStorageKey: null as string | null,
+    introEnabled: false,
+    outroEnabled: false,
+    introAssetKey: null as string | null,
+    outroAssetKey: null as string | null,
   });
+  const [assetState, setAssetState] = useState<{ busy: string | null; error: string | null }>({ busy: null, error: null });
   const [preset, setPreset] = useState({
     name: '',
     fontFamily: 'Inter',
@@ -46,8 +52,31 @@ export default function BrandPage() {
     maxLines: 2,
   });
 
+  const uploadAsset = async (kind: 'LOGO' | 'INTRO' | 'OUTRO', file: File | undefined) => {
+    if (!file) return;
+    setAssetState({ busy: kind, error: null });
+    try {
+      const uploaded = await uploadBrandAsset(file, kind);
+      if (kind === 'LOGO') setBrand((current) => ({ ...current, logoStorageKey: uploaded.storageKey }));
+      if (kind === 'INTRO') setBrand((current) => ({ ...current, introEnabled: true, introAssetKey: uploaded.storageKey }));
+      if (kind === 'OUTRO') setBrand((current) => ({ ...current, outroEnabled: true, outroAssetKey: uploaded.storageKey }));
+      setAssetState({ busy: null, error: null });
+      setMessage(`${kind} uploaded (${(uploaded.sizeBytes / 1024).toFixed(0)}KB) — save the profile to apply it.`);
+    } catch (uploadError) {
+      setAssetState({ busy: null, error: (uploadError as Error).message });
+    }
+  };
+
   const saveBrand = useMutation({
-    mutationFn: () => api('/api/brand-profiles', { method: 'POST', body: brand }),
+    mutationFn: () =>
+      api('/api/brand-profiles', {
+        method: 'POST',
+        body: {
+          ...brand,
+          ...(brand.introEnabled && !brand.introAssetKey ? { introEnabled: false } : {}),
+          ...(brand.outroEnabled && !brand.outroAssetKey ? { outroEnabled: false } : {}),
+        },
+      }),
     onSuccess: () => {
       setMessage('Brand profile created.');
       setError(null);
@@ -111,10 +140,36 @@ export default function BrandPage() {
                 {['top-left', 'top-right', 'bottom-left', 'bottom-right'].map((position) => <option key={position} value={position}>{position}</option>)}
               </select>
             </Field>
+            <Field label="Logo / watermark (PNG, JPEG or WebP ≤ 8MB)" hint={brand.logoStorageKey ? `Stored as ${brand.logoStorageKey.split('/').pop()}` : 'Burned in at the watermark position you choose above.'}>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="input !py-1.5 text-xs"
+                onChange={(event) => void uploadAsset('LOGO', event.target.files?.[0])}
+              />
+            </Field>
+            <Field label="Intro video (MP4 ≤ 64MB)" hint={brand.introAssetKey ? `Stored as ${brand.introAssetKey.split('/').pop()}` : 'Prepended before the clip. Enable only when you want it.'}>
+              <input
+                type="file"
+                accept="video/mp4"
+                className="input !py-1.5 text-xs"
+                onChange={(event) => void uploadAsset('INTRO', event.target.files?.[0])}
+              />
+            </Field>
+            <Field label="Outro video (MP4 ≤ 64MB)" hint={brand.outroAssetKey ? `Stored as ${brand.outroAssetKey.split('/').pop()}` : 'Appended after the clip.'}>
+              <input
+                type="file"
+                accept="video/mp4"
+                className="input !py-1.5 text-xs"
+                onChange={(event) => void uploadAsset('OUTRO', event.target.files?.[0])}
+              />
+            </Field>
             <label className="flex items-center gap-2 self-end text-[13px] text-ink-soft">
               <input type="checkbox" checked={brand.isDefault} onChange={(event) => setBrand({ ...brand, isDefault: event.target.checked })} />
               Make this the default profile
             </label>
+            {assetState.busy ? <p className="self-end text-xs text-ink-faint">Uploading {assetState.busy}…</p> : null}
+            {assetState.error ? <p className="self-end text-xs text-danger">{assetState.error}</p> : null}
           </div>
           <div className="border-t border-line px-5 py-3">
             <button type="button" className="btn-primary" onClick={() => saveBrand.mutate()} disabled={!brand.name || saveBrand.isPending}>

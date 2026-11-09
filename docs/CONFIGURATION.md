@@ -15,6 +15,7 @@ back to a built-in value. See `.env.example` for the full annotated list.
 | Redis | `REDIS_URL`, `REDIS_PREFIX` | Queue transport + rate limits + heartbeats |
 | Secrets | `SESSION_SECRET`, `CSRF_SECRET`, `CREDENTIAL_ENCRYPTION_KEY` | 32-byte base64 key for AES-256-GCM |
 | Bootstrap | `ADMIN_BOOTSTRAP_TOKEN` | One-time token for first-run setup; rotate/remove after use |
+| Registration | `ALLOW_SELF_REGISTRATION` | Default `false`. When `false`, `POST /api/auth/register` returns `403 FORBIDDEN` and the login screen offers no "create account" tab; when `true`, anyone who can reach the API can create a workspace (CSRF is still required) |
 | Storage | `STORAGE_DRIVER`, `STORAGE_LOCAL_ROOT`, `S3_*`, `STORAGE_PUBLIC_BASE_URL` | `STORAGE_PUBLIC_BASE_URL` must be public HTTPS — Meta fetches Reel files from it |
 | AI service | `AI_ENGINE_URL`, `AI_ENGINE_API_KEY`, `VIDEO_PROCESSOR_URL`, `VIDEO_PROCESSOR_API_KEY` | Internal service auth |
 | Gemini | `GEMINI_API_KEY`, `GEMINI_TEXT_MODEL`, `GEMINI_VISION_MODEL` | Model ids are explicit — no alias, no default |

@@ -108,6 +108,30 @@ describe('processing job lifecycle', () => {
     expect(resumed.status).toBe('PROBING');
   });
 
+  it('counts retries, not lease acquisitions, against maxAttempts', async () => {
+    const job = await db.createProcessingJob({ workspaceId, sourceVideoId: sourceId, createdById: userId, configuration: baseConfig });
+    await db.transitionJob(job.id, 'PROBING');
+
+    // Moving between workers (pipeline -> render -> publish) must not consume the retry budget.
+    for (const worker of ['worker-a', 'worker-b', 'worker-c']) {
+      await db.acquireJobLease(job.id, worker, 60);
+      await db.releaseJobLease(job.id);
+    }
+    const afterLeases = await db.prisma.processingJob.findUniqueOrThrow({ where: { id: job.id } });
+    expect(afterLeases.attempt).toBe(0);
+
+    // A RETRYING transition is what consumes exactly one attempt.
+    await db.transitionJob(job.id, 'FAILED', { errorCode: 'AI_PROVIDER_ERROR' });
+    await db.transitionJob(job.id, 'RETRYING');
+    const afterFirstRetry = await db.prisma.processingJob.findUniqueOrThrow({ where: { id: job.id } });
+    expect(afterFirstRetry.attempt).toBe(1);
+    await db.transitionJob(job.id, 'PROBING');
+    await db.transitionJob(job.id, 'FAILED', { errorCode: 'AI_PROVIDER_ERROR' });
+    await db.transitionJob(job.id, 'RETRYING');
+    const afterSecondRetry = await db.prisma.processingJob.findUniqueOrThrow({ where: { id: job.id } });
+    expect(afterSecondRetry.attempt).toBe(2);
+  });
+
   it('exposes a released lease as normal and only treats a stale heartbeat as abandonment', async () => {
     const job = await db.createProcessingJob({ workspaceId, sourceVideoId: sourceId, createdById: userId, configuration: baseConfig });
     await db.transitionJob(job.id, 'PROBING', { workerId: 'worker-lease', progressPercent: 5 });
