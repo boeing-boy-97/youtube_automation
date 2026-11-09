@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -43,8 +44,28 @@ def probe_summary(ffprobe_path: str, path: str) -> dict:
     fmt = data.get("format", {})
     num, den = (video.get("avg_frame_rate") or "0/1").split("/") if video and video.get("avg_frame_rate") else ("0", "1")
     fps = float(num) / float(den) if float(den) else 0.0
+    rotation = 0
+    if video:
+        for side_data in video.get("side_data_list") or []:
+            if "rotation" in side_data:
+                try:
+                    rotation = int(float(side_data["rotation"]))
+                except (TypeError, ValueError):
+                    rotation = 0
+        if not rotation:
+            try:
+                rotation = int(float((video.get("tags") or {}).get("rotate", 0)))
+            except (TypeError, ValueError):
+                rotation = 0
+    audio_duration = None
+    if audio_stream:
+        try:
+            audio_duration = float(audio_stream.get("duration") or 0.0) or None
+        except (TypeError, ValueError):
+            audio_duration = None
     return {
         "duration_seconds": float(fmt.get("duration") or 0.0),
+        "audio_duration_seconds": audio_duration,
         "width": int(video.get("width", 0)) if video else 0,
         "height": int(video.get("height", 0)) if video else 0,
         "frame_rate": round(fps, 3),
@@ -54,7 +75,7 @@ def probe_summary(ffprobe_path: str, path: str) -> dict:
         "audio_sample_rate": int(audio_stream.get("sample_rate", 0)) if audio_stream else None,
         "container": fmt.get("format_name", ""),
         "bit_rate": int(fmt["bit_rate"]) if fmt.get("bit_rate") else None,
-        "rotation": 0,
+        "rotation": rotation,
         "raw": data,
     }
 
@@ -88,6 +109,14 @@ def render_clip(
     preset: str = "veryfast",
 ) -> dict:
     source_info = probe_summary(ffprobe_path, source_path)
+    if not source_info.get("audio_codec"):
+        # A clip with no audio cannot be published anywhere; fail here with a classified reason
+        # instead of dying deep inside the filter graph with an opaque FFmpeg exit code.
+        raise RenderError(
+            "Source has no audio stream — a publishable clip requires speech",
+            stage="validation",
+            details={"sourceInfo": {k: v for k, v in source_info.items() if k != "raw"}},
+        )
     if source_info["duration_seconds"] <= 0:
         raise RenderError("Source has no measurable duration", stage="probe")
 
@@ -305,6 +334,7 @@ def render_clip(
                 os.remove(leftover)
 
     validation = validate_output(
+        ffmpeg_path=ffmpeg_path,
         ffprobe_path=ffprobe_path,
         output_path=output_path,
         expected_width=effective_width,
@@ -344,12 +374,83 @@ def render_clip(
         },
         "sourceInfo": {k: v for k, v in source_info.items() if k != "raw"},
         "validationErrors": validation["errors"],
+        "validationWarnings": validation["warnings"],
+        "quality": {
+            "blackSeconds": validation["content"]["blackSeconds"],
+            "frozenSeconds": validation["content"]["frozenSeconds"],
+            "blackSegments": validation["content"]["blackSegments"],
+            "frozenSegments": validation["content"]["frozenSegments"],
+            "meanVolumeDb": validation["meanVolumeDb"],
+            "maxVolumeDb": validation["maxVolumeDb"],
+            "audioVideoDriftSeconds": round(
+                abs((validation["probe"].get("audio_duration_seconds") or 0) - (validation["probe"].get("duration_seconds") or 0)),
+                3,
+            ),
+            "passed": not validation["errors"],
+        },
     }
     return report
 
 
+BLACK_START_RE = re.compile(r"black_start:(?P<start>[\d.]+)\s+black_end:(?P<end>[\d.]+)")
+FREEZE_START_RE = re.compile(r"freeze_start:\s*(?P<start>[\d.]+)")
+FREEZE_END_RE = re.compile(r"freeze_end:\s*(?P<end>[\d.]+)")
+
+
+def _scan_content(ffmpeg_path: str, output_path: str, duration_seconds: float | None = None) -> dict:
+    """Detects black stretches and frozen frames in the rendered file.
+
+    A file that satisfies ffprobe but is black or frozen for seconds is a failed render: the
+    container is valid, the content is not. Both are measured, not assumed.
+    """
+    cmd = [
+        ffmpeg_path,
+        "-hide_banner",
+        "-nostats",
+        "-i",
+        output_path,
+        "-vf",
+        "blackdetect=d=0.3:pix_th=0.10,freezedetect=n=-60dB:d=1.5",
+        "-an",
+        "-f",
+        "null",
+        "-",
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+    stderr = proc.stderr or ""
+    black: list[dict] = []
+    for match in BLACK_START_RE.finditer(stderr):
+        start, end = float(match.group("start")), float(match.group("end"))
+        black.append({"start": round(start, 3), "end": round(end, 3), "seconds": round(end - start, 3)})
+    frozen: list[dict] = []
+    pending: float | None = None
+    for line in stderr.splitlines():
+        start_match = FREEZE_START_RE.search(line)
+        if start_match:
+            pending = float(start_match.group("start"))
+            continue
+        end_match = FREEZE_END_RE.search(line)
+        if end_match and pending is not None:
+            end = float(end_match.group("end"))
+            frozen.append({"start": round(pending, 3), "end": round(end, 3), "seconds": round(end - pending, 3)})
+            pending = None
+    if pending is not None:
+        # FFmpeg only emits freeze_end when motion resumes; a clip that is frozen through EOF would
+        # otherwise be reported as clean.
+        end = duration_seconds if duration_seconds and duration_seconds > pending else pending
+        if end > pending:
+            frozen.append({"start": round(pending, 3), "end": round(end, 3), "seconds": round(end - pending, 3)})
+    return {
+        "blackSegments": black,
+        "blackSeconds": round(sum(segment["seconds"] for segment in black), 3),
+        "frozenSegments": frozen,
+        "frozenSeconds": round(sum(segment["seconds"] for segment in frozen), 3),
+    }
+
+
 def validate_output(
     *,
+    ffmpeg_path: str,
     ffprobe_path: str,
     output_path: str,
     expected_width: int,
@@ -359,8 +460,9 @@ def validate_output(
     duration_tolerance: float = 1.0,
 ) -> dict:
     errors: list[str] = []
+    warnings: list[str] = []
     if not os.path.isfile(output_path) or os.path.getsize(output_path) == 0:
-        return {"errors": ["Output file is missing or empty"], "probe": {}}
+        return {"errors": ["Output file is missing or empty"], "warnings": [], "probe": {}, "content": {}}
     probe = probe_summary(ffprobe_path, output_path)
     if probe["width"] != expected_width or probe["height"] != expected_height:
         errors.append(f"Resolution {probe['width']}x{probe['height']} != expected {expected_width}x{expected_height}")
@@ -382,7 +484,47 @@ def validate_output(
     ratio = probe["width"] / probe["height"] if probe["height"] else 0
     if abs(ratio - 9 / 16) > 0.01:
         errors.append(f"Aspect ratio {ratio:.4f} is not 9:16")
-    return {"errors": errors, "probe": {k: v for k, v in probe.items() if k != "raw"}}
+
+    # Audio must be present and healthy, not merely declared in the container.
+    if not probe.get("audio_codec"):
+        errors.append("No audio stream in the rendered file")
+    mean_volume, max_volume = audio_mod._measure_volume(ffmpeg_path, output_path, None, None)
+    if mean_volume is None:
+        warnings.append("Could not measure output volume")
+    elif mean_volume < -55:
+        errors.append(f"Audio track is effectively silent (mean volume {mean_volume} dB)")
+    elif mean_volume < -40:
+        warnings.append(f"Audio track is very quiet (mean volume {mean_volume} dB)")
+
+    # A/V drift: every player drifts visibly once the streams disagree by more than ~0.5 s.
+    if probe.get("audio_duration_seconds") and probe.get("duration_seconds"):
+        drift = abs(probe["audio_duration_seconds"] - probe["duration_seconds"])
+        if drift > 0.5:
+            errors.append(f"Audio/video duration drift {drift:.2f}s exceeds 0.5s")
+        elif drift > 0.25:
+            warnings.append(f"Audio/video duration drift {drift:.2f}s")
+
+    content = _scan_content(ffmpeg_path, output_path, probe.get("duration_seconds"))
+    if probe.get("duration_seconds"):
+        share = content["blackSeconds"] / probe["duration_seconds"]
+        if share > 0.6:
+            errors.append(f"{share * 100:.0f}% of the clip is black frames")
+        elif content["blackSegments"]:
+            warnings.append(f"{len(content['blackSegments'])} black segment(s) totalling {content['blackSeconds']}s")
+        frozen_share = content["frozenSeconds"] / probe["duration_seconds"]
+        if frozen_share > 0.5:
+            errors.append(f"{frozen_share * 100:.0f}% of the clip is frozen frames")
+        elif content["frozenSegments"]:
+            warnings.append(f"{len(content['frozenSegments'])} frozen segment(s) totalling {content['frozenSeconds']}s")
+
+    return {
+        "errors": errors,
+        "warnings": warnings,
+        "probe": {k: v for k, v in probe.items() if k != "raw"},
+        "content": content,
+        "meanVolumeDb": mean_volume,
+        "maxVolumeDb": max_volume,
+    }
 
 
 def _normalise_brand_segment(

@@ -33,6 +33,7 @@
     "test:unit": "vitest run --config tests/vitest.config.ts",
     "test:integration": "vitest run --config tests/vitest.integration.config.ts",
     "test:e2e": ".venv/bin/python tests/e2e/full_workflow.py",
+    "test:python": ".venv/bin/python tests/python/test_render_validation.py",
     "verify:health": "bash infrastructure/scripts/healthcheck.sh",
     "verify:pipeline": ".venv/bin/python infrastructure/scripts/verify-pipeline.py",
     "openapi:export": "curl -fsS http://127.0.0.1:4000/api/docs/openapi.json -o docs/openapi.json"

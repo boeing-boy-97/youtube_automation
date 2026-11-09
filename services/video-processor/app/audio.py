@@ -5,6 +5,7 @@ All measurements come from FFmpeg's own filters — nothing is estimated.
 from __future__ import annotations
 
 import logging
+import math
 import re
 import subprocess
 
@@ -63,9 +64,13 @@ def _measure_loudness(ffmpeg_path: str, media_path: str, start: float | None, du
         return {}
     def num(value: str) -> float | None:
         try:
-            return float(value)
+            parsed = float(value)
         except (TypeError, ValueError):
             return None
+        # FFmpeg reports "-inf" for digital silence. Keeping that value would be passed straight into
+        # loudnorm's measured_I parameter, which rejects it and fails the whole render.
+        return parsed if math.isfinite(parsed) else None
+
     return {
         "integrated_loudness_lufs": num(match.group("i")),
         "true_peak_dbtp": num(match.group("tp")),
@@ -109,7 +114,8 @@ def _measure_volume(ffmpeg_path: str, media_path: str, start: float | None, dura
         if not match:
             return None
         try:
-            return float(match.group("db"))
+            parsed = float(match.group("db"))
         except (TypeError, ValueError):
             return None
+        return parsed if math.isfinite(parsed) else None
     return num(mean_match), num(max_match)

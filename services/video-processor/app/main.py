@@ -122,6 +122,7 @@ def audio_analysis(request: AudioRequest) -> dict:
 @app.post("/validate", dependencies=[Depends(require_api_key)])
 def validate(request: ValidateRequest) -> dict:
     return renderer.validate_output(
+        ffmpeg_path=FFMPEG,
         ffprobe_path=FFPROBE,
         output_path=request.path,
         expected_width=request.expected_width,
