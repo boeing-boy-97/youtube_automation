@@ -58,6 +58,28 @@ Run:
 Use a small source (1280×720, ~30 s). A 2560×1440 source makes FFmpeg pegging all cores look like
 an API stall — that is CPU saturation, not a defect.
 
+## End-to-end scenarios — `.venv/bin/python tests/e2e/scenarios.py [video]`
+
+Nineteen scenarios (45 checks) that each answer one operator question — health contract, CSRF,
+login rate limiting, session revocation, chunked-upload integrity, upload limits, SSRF, the
+configuration gate, the full pipeline, render quality, HTTP Range, duplicate submissions,
+cancellation, retry rules, per-platform metadata, publishing eligibility, usage costs, the
+authorization matrix and durability across a worker restart. Every scenario runs inside a guard, so
+one failure is reported and the rest still run; the exit code is `0` only when all of them pass.
+
+```bash
+.venv/bin/python tests/e2e/scenarios.py /home/user/testdata/light-source.mp4
+```
+
+## Adversarial probes — `.venv/bin/python tests/e2e/logic_probes.py`
+
+The suites above prove the product works on the happy path. These probes try to break the logic:
+inverted ranges, garbage timestamps, a model that inflates its own quality score, duplicate
+windows, unknown framing modes, a missing video, an empty word list, a rubric that must sum to 1.0.
+They import the real modules (`services/ai-engine/app/selection.py`,
+`services/video-processor/app/{subtitles,framing}.py`) — nothing is mocked — and assert the *reason*
+for each rejection, so a "returns nothing" regression fails instead of passing quietly.
+
 ## Verification helpers
 
 * `infrastructure/scripts/verify-pipeline.py` — drives the AI engine and the video processor

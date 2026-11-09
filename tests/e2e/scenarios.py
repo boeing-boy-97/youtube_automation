@@ -350,9 +350,24 @@ def s09_full_pipeline(source: dict) -> dict:
 def s10_render_quality(job: dict) -> None:
     scenario("10 · Rendered clips are publishable, not just decodable")
     client = admin_client()
+    if not job.get("clips"):
+        # A failed pipeline must be reported as a failure, not crash the remaining scenarios.
+        results.record(
+            "the job produced a clip whose render can be inspected",
+            False,
+            f"job {job.get('id')} finished {job.get('status')}: {job.get('errorMessage') or 'no clips'}",
+        )
+        return
     clip = job["clips"][0]
     status, detail = client.get(f"/api/clips/{clip['id']}")
     assert status == 200, f"clip read failed: {status}"
+    if not detail.get("variants"):
+        results.record(
+            "the clip has a rendered variant on disk",
+            False,
+            f"clip {clip['id']} status={detail.get('status')} has no variants (render never completed)",
+        )
+        return
     variant = detail["variants"][0]
     report = variant.get("renderReport") or {}
     quality = report.get("quality") or {}
@@ -579,26 +594,40 @@ def main() -> int:
     if not SOURCE.exists():
         raise SystemExit(f"source video not found: {SOURCE}")
 
-    s01_health_contract()
-    s02_csrf_enforcement()
-    s03_login_rate_limit()
-    s04_session_revocation()
-    source = s05_upload_checksum(SOURCE)
-    results_state["source_id"] = source["id"]
-    s06_upload_limits()
-    s07_ssrf_guard()
-    s08_configuration_gate()
-    job = s09_full_pipeline(source)
-    s10_render_quality(job)
-    s11_media_range(job["clips"][0])
-    s12_job_idempotency(source)
-    s13_cancel(job)
-    s14_retry_rules(job)
-    s15_clip_metadata(job)
-    s16_publishing_gate(job)
-    s17_usage_ledger(job)
-    s18_authorization_matrix()
-    s19_worker_restart()
+    def run(step, *args):
+        """One broken scenario must not hide the verdicts of the ones after it."""
+        try:
+            return step(*args)
+        except Exception as exc:  # noqa: BLE001 - the point is to report, not to swallow
+            results.record(f"{step.__name__} completed without raising", False, f"{type(exc).__name__}: {exc}")
+            return None
+
+    run(s01_health_contract)
+    run(s02_csrf_enforcement)
+    run(s03_login_rate_limit)
+    run(s04_session_revocation)
+    source = run(s05_upload_checksum, SOURCE)
+    if source:
+        results_state["source_id"] = source["id"]
+    run(s06_upload_limits)
+    run(s07_ssrf_guard)
+    run(s08_configuration_gate)
+    job = run(s09_full_pipeline, source) if source else None
+    run(s10_render_quality, job or {"clips": []})
+    if job and job.get("clips"):
+        run(s11_media_range, job["clips"][0])
+    else:
+        results.record("rendered media is served with Range support", False, "no rendered clip to stream")
+    if source:
+        run(s12_job_idempotency, source)
+    if job:
+        run(s13_cancel, job)
+        run(s14_retry_rules, job)
+        run(s15_clip_metadata, job)
+        run(s16_publishing_gate, job)
+        run(s17_usage_ledger, job)
+    run(s18_authorization_matrix)
+    run(s19_worker_restart)
 
     return results.summary()
 

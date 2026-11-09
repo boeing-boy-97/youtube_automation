@@ -74,9 +74,14 @@ Or run the whole stack in containers: `docker compose -f docker-compose.dev.yml 
 
 | Gate | Command | Last result |
 | --- | --- | --- |
-| Unit tests | `npm run test:unit` | 37 passed |
-| Integration tests (real Postgres) | `npm run test:integration` | 10 passed |
-| End-to-end workflow (HTTP) | `.venv/bin/python tests/e2e/full_workflow.py <video>` | PASSED |
+| Typecheck (6 workspaces) | `npx tsc -p <workspace>/tsconfig.json --noEmit` | clean |
+| Unit tests | `npm run test:unit` | 53 passed |
+| Integration tests (real Postgres + Redis) | `npm run test:integration` | 14 passed |
+| Renderer logic (Python) | `.venv/bin/python tests/python/test_render_validation.py` | 13 passed |
+| End-to-end scenarios (HTTP) | `.venv/bin/python tests/e2e/scenarios.py <video>` | 45/45 checks, 19 scenarios |
+| Authorization matrix | `.venv/bin/python tests/e2e/authorization_matrix.py` | 27/27 |
+| Logic probes (adversarial) | `.venv/bin/python tests/e2e/logic_probes.py` | 38/38 |
+| End-to-end workflow (single journey) | `.venv/bin/python tests/e2e/full_workflow.py <video>` | PASSED |
 | Service smoke test | `bash infrastructure/scripts/healthcheck.sh` | all healthy |
 
 `docs/VERIFICATION.md` records exactly what was executed, what passed, what is blocked on

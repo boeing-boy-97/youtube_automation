@@ -95,14 +95,69 @@ Verified behaviours:
 
 ## Test results
 
+Measured on 2026-11-09 against the running stack (see "Verification pass" below for the full audit):
+
 | Suite | Command | Result |
 | --- | --- | --- |
-| Unit | `npm run test:unit` | **37 passed**, 4 files |
-| Integration (real PostgreSQL) | `npm run test:integration` | **10 passed** |
-| End-to-end (HTTP) | `.venv/bin/python tests/e2e/full_workflow.py /home/user/testdata/light-source.mp4` | **E2E PASSED** (job `ca03f0af-42bc-4a3b-ad4a-b9828eb00199`, 2 clips) |
-| Health smoke | `bash infrastructure/scripts/healthcheck.sh` | all healthy |
-| Renderer branding | direct `render_clip` call with intro/outro | 10.21 s, intro+outro applied |
-| Backup/restore | `backup-postgres.sh` + `restore-postgres.sh` | dump verified, restore verified |
+| Typecheck (all workspaces) | `npx tsc -p <ws>/tsconfig.json --noEmit` ×6 | clean (`packages/*` ×4, `apps/api`, `apps/web`) |
+| Unit | `npm run test:unit` | **53 passed**, 6 files |
+| Integration (real PostgreSQL + Redis) | `npm run test:integration` | **14 passed** (database 11, storage 3) |
+| Python (renderer logic) | `.venv/bin/python tests/python/test_render_validation.py` | **13 passed** |
+| End-to-end (HTTP, real FFmpeg renders) | `.venv/bin/python tests/e2e/scenarios.py` | **45/45 checks, 19 scenarios** |
+| Authorization matrix | `.venv/bin/python tests/e2e/authorization_matrix.py` | **27/27** (also run inside scenario 18) |
+| Logic probes (adversarial) | `.venv/bin/python tests/e2e/logic_probes.py` | **38/38** |
+| Health smoke | `bash infrastructure/scripts/healthcheck.sh` | api / ai-engine / video-processor 200, postgres + redis healthy |
+| Python module import sweep | import all 17 modules under `services/*/app/` | clean |
+
+## Verification pass — 2026-11-09 (code and logic audit)
+
+A full pass over the repository, not just a test run: every workspace was type-checked, every Python
+module imported, every shell script parsed with `bash -n`, every JSON/YAML file parsed, then the
+suites above were executed against the live stack, and finally the core algorithms were probed
+adversarially (`tests/e2e/logic_probes.py`).
+
+### What the probes proved
+
+| Area | Assertion (all passing) |
+| --- | --- |
+| Selection | rubric weights sum to exactly 1.0 over 10 factors; score bounds 0→0 / 10→100; a missing factor scores 0, not full marks; non-numeric input degrades to a number instead of raising |
+| Selection | rejects `TOO_SHORT`, `INVERTED_RANGE`, `TARGET_DURATION_NOT_REQUESTED`, `BELOW_MIN_QUALITY`, `MALFORMED_TIMESTAMPS`, `NO_SPEECH_IN_WINDOW` — each with a machine-readable reason, never a crash |
+| Selection | the model cannot inflate its score: claimed 100 with a rubric score of 90 is stored as 90 and the recomputation is noted on the candidate |
+| Selection | boundaries are snapped to real word timings (`13.70 → 13.50`, `46.20 → 46.40`) and every snap is recorded in `validation_notes` |
+| De-duplication | keeps the higher-quality of two overlapping candidates (`DUPLICATE` with the clash recorded), honours `max_clips`, keeps genuinely distinct windows |
+| Variants | every derived variant stays inside its parent candidate and carries a decision record |
+| Subtitles | ASS carries a valid header, every spoken word, real dialogue timings, upper-casing and the active-word highlight; an empty word list raises `ValueError` instead of emitting a blank script |
+| Framing | `center_crop` centres, `manual` clamps an out-of-range offset, `background_blur` needs no crop window, an unknown mode raises `FramingError`, a missing video degrades to the configured fallback |
+| Framing (live) | face tracking on a real 1280×720 talking-head clip: **6/6 sampled frames, coverage 1.00**, smoothed keyframes and a valid FFmpeg `crop_x` expression |
+| State machine | illegal transitions are refused; a retry never rewinds a job to an earlier stage (see defect 1) |
+
+### Defects found and fixed in this pass
+
+1. **Retries rewound the job instead of resuming it (product bug).** A render failure left the job at
+   `RENDERING`; the pipeline's resume path called `ensureStatus('AI_ANALYSIS')`, which issued
+   `RENDERING → AI_ANALYSIS` — not an edge in the state machine. The job died with
+   `PIPELINE_ERROR: Illegal job transition RENDERING -> AI_ANALYSIS`, which also *masked the real
+   cause*, and a second attempt re-ran AI analysis and selection (deleting clip rows that queued
+   render jobs still referenced, logged as `Clip … not found`).
+   *Fix:* `ensureStatus` is now monotonic (a job already past the target stage is never dragged
+   back), and a job whose resume point is at or after `RENDERING` with clips already planned goes
+   straight back to rendering (`resumed at RENDERING: re-queued N of M clip(s)`). Verified: a job
+   stuck at `RENDERING` with 2 clips re-entered, logged `not rewinding to AI_ANALYSIS` +
+   `resumed at RENDERING`, and completed with 2 `READY` clips and **no** second analysis call.
+2. **A missing brand asset failed every render (robustness bug).** A `BrandProfile` referencing a
+   logo/intro/outro object that no longer exists threw a raw `ENOENT` from storage, burning every
+   BullMQ attempt and failing the whole job.
+   *Fix:* brand assets are resolved through a guarded helper — a missing or unreadable asset is
+   skipped with a warning, the reference is preserved for the operator to repair, and the skip is
+   recorded per variant in `renderProfile.skippedBrandAssets`. Verified: the same job now renders
+   to `COMPLETED` and the variant records
+   `["logo:…", "intro:…", "outro:…"]` as skipped.
+3. **The e2e suite aborted instead of reporting (test-harness bug).** A failed pipeline made
+   scenario 10 raise `IndexError`, so scenarios 10–19 reported nothing. Each scenario now runs
+   inside a guard, clip-dependent scenarios fail with the job's status and message, and the run
+   always reaches a summary. The suite is green at **45/45** after the fix.
+
+`tests/e2e/scenarios.py` exit code is now a reliable gate: `0` only when every scenario passed.
 
 ## Awaiting credentials (integration built, not live-verified)
 
@@ -145,8 +200,25 @@ These are labelled **BLOCKED — awaiting credentials** in `docs/TESTING.md`; th
 ## Reproducing this report
 
 ```bash
+# 1. static gates
+for ws in packages/database packages/shared-types packages/validation packages/platform-connectors apps/api apps/web; do
+  npx tsc -p "$ws/tsconfig.json" --noEmit || exit 1
+done
+
+# 2. suites
 npm run test:unit && npm run test:integration
+.venv/bin/python tests/python/test_render_validation.py
+
+# 3. live stack (API :4000, AI :8100, video processor :8200, 5 workers, postgres, redis)
 bash infrastructure/scripts/healthcheck.sh
-.venv/bin/python tests/e2e/full_workflow.py /home/user/testdata/light-source.mp4
+.venv/bin/python tests/e2e/scenarios.py
+.venv/bin/python tests/e2e/authorization_matrix.py
+.venv/bin/python tests/e2e/logic_probes.py
+
+# 4. regenerate the docs that are derived from the tree
+.venv/bin/python scripts/build-code-map.py
 npm run openapi:export
 ```
+
+The integration suite stops the workers (it asserts queue and lease behaviour); restart them with
+`node dist/workers/{pipeline,render,publish,scheduler,recovery}.worker.js` from `apps/api`.

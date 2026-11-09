@@ -181,9 +181,12 @@ Every item below was reproduced first, then fixed, then re-tested. Fixes are com
 
 | Suite | Command | Result |
 | --- | --- | --- |
-| Unit | `npm run test:unit` | **38 passed** (4 files) — includes the new `RETRYING is never a dead end` case |
+| Unit | `npm run test:unit` | **53 passed** (6 files) |
 | Integration | `npm run test:integration` | **14 passed** (2 files) — new: retry-budget semantics, ranged reads, out-of-order/duplicate parts |
-| E2E | `.venv/bin/python tests/e2e/full_workflow.py /home/user/testdata/light-source.mp4` | **E2E PASSED** |
+| E2E scenarios | `.venv/bin/python tests/e2e/scenarios.py` | **45/45 checks, 19 scenarios** |
+| Authorization matrix | `.venv/bin/python tests/e2e/authorization_matrix.py` | **27/27** |
+| Logic probes | `.venv/bin/python tests/e2e/logic_probes.py` | **38/38** |
+| E2E (single journey) | `.venv/bin/python tests/e2e/full_workflow.py` | **E2E PASSED** |
 | Health | `bash infrastructure/scripts/healthcheck.sh` | all components ok |
 | OpenAPI | `curl /api/docs/openapi.json` | 51 paths, exported to `docs/openapi.json` |
 

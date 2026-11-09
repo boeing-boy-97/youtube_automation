@@ -100,23 +100,35 @@ async function renderClip(clipId: string, jobId: string): Promise<void> {
   if (configuration.brandProfileId && !brandProfile) {
     throw new Error(`Brand profile ${configuration.brandProfileId} no longer exists — fix the job configuration before rendering`);
   }
-  let watermarkPath: string | null = null;
-  if (brandProfile?.logoStorageKey) {
-    watermarkPath = join(workDir, `logo-${brandProfile.id}`);
-    await storage.downloadToFile(brandProfile.logoStorageKey, watermarkPath);
-  }
+  // A brand asset whose object is gone from storage must degrade, not fail the render: a single
+  // deleted logo used to throw ENOENT and burn every retry for the whole workspace. The reference
+  // stays on the profile so the operator can re-upload it, and the skip is reported per variant.
+  const skippedBrandAssets: string[] = [];
+  const resolveBrandAsset = async (key: string | null | undefined, label: string, fileName: string): Promise<string | null> => {
+    if (!key) return null;
+    const target = join(workDir, fileName);
+    try {
+      if (!(await storage.exists(key))) {
+        skippedBrandAssets.push(`${label}:${key}`);
+        runtime.logger.warn(`brand ${label} asset ${key} is missing from storage — rendering without it`);
+        return null;
+      }
+      await storage.downloadToFile(key, target);
+      return target;
+    } catch (error) {
+      skippedBrandAssets.push(`${label}:${key}`);
+      runtime.logger.warn(`brand ${label} asset ${key} could not be read — rendering without it: ${(error as Error).message}`);
+      return null;
+    }
+  };
+
+  const watermarkPath = await resolveBrandAsset(brandProfile?.logoStorageKey, 'logo', `logo-${brandProfile?.id}`);
   // Branding intro/outro are only applied when the operator enabled them and supplied an asset.
   // Background music has no configuration surface, so nothing is ever mixed in automatically.
-  let introPath: string | null = null;
-  if (brandProfile?.introEnabled && brandProfile.introAssetKey) {
-    introPath = join(workDir, `intro-${brandProfile.id}`);
-    await storage.downloadToFile(brandProfile.introAssetKey, introPath);
-  }
-  let outroPath: string | null = null;
-  if (brandProfile?.outroEnabled && brandProfile.outroAssetKey) {
-    outroPath = join(workDir, `outro-${brandProfile.id}`);
-    await storage.downloadToFile(brandProfile.outroAssetKey, outroPath);
-  }
+  const introPath =
+    brandProfile?.introEnabled ? await resolveBrandAsset(brandProfile.introAssetKey, 'intro', `intro-${brandProfile.id}`) : null;
+  const outroPath =
+    brandProfile?.outroEnabled ? await resolveBrandAsset(brandProfile.outroAssetKey, 'outro', `outro-${brandProfile.id}`) : null;
 
   await prisma.generatedClip.update({ where: { id: clipId }, data: { status: 'RENDERING' } });
 
@@ -179,6 +191,7 @@ async function renderClip(clipId: string, jobId: string): Promise<void> {
         framingFallback: configuration.framingFallback,
         subtitlePresetId: preset.id,
         loudnessTargetLufs: liveConfig.loudnessTargetLufs,
+        skippedBrandAssets,
       } as Prisma.InputJsonValue,
       renderReport: result as unknown as Prisma.InputJsonValue,
       checksumSha256: checksum,

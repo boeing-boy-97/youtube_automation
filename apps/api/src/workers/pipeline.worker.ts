@@ -9,6 +9,7 @@
 import { join } from 'node:path';
 import { mkdir } from 'node:fs/promises';
 import { prisma, transitionJob, acquireJobLease, writeOutbox, releaseJobLease, appendAuditLog } from '@clipforge/database';
+import { PIPELINE_STATES } from '@clipforge/shared-types';
 import type { Prisma } from '@prisma/client';
 import { env } from '../common/env';
 import { AppConfigService } from '../common/services/config.service';
@@ -40,6 +41,7 @@ interface JobConfiguration {
 
 async function handler(job: { id?: string; data: { jobId: string; resumeFrom?: string } }): Promise<void> {
   const jobId = job.data.jobId;
+  const resumeFrom = job.data.resumeFrom;
   const leased = await acquireJobLease(jobId, runtime.workerId, env.JOB_LEASE_SECONDS);
   if (!leased) {
     runtime.logger.info(`job ${jobId} is owned by another worker (or finished) — skipping`);
@@ -47,14 +49,14 @@ async function handler(job: { id?: string; data: { jobId: string; resumeFrom?: s
   }
   const stopRenewal = startLeaseRenewal(jobId, runtime.workerId, runtime.logger);
   try {
-    await runPipeline(jobId);
+    await runPipeline(jobId, resumeFrom);
   } finally {
     stopRenewal();
     await releaseJobLease(jobId).catch(() => undefined);
   }
 }
 
-async function runPipeline(jobId: string): Promise<void> {
+async function runPipeline(jobId: string, resumeFrom?: string): Promise<void> {
   const job = await prisma.processingJob.findUnique({
     where: { id: jobId },
     include: { sourceVideo: true, stages: true },
@@ -167,6 +169,39 @@ async function runPipeline(jobId: string): Promise<void> {
       });
     } else {
       await ensureStatus(jobId, 'AI_ANALYSIS');
+    }
+
+    // A retry that already planned clips belongs at the rendering stage. Re-running analysis pays
+    // for the same model calls again; re-running selection deletes the clip rows that in-flight
+    // render jobs still reference, which surfaced as "Clip … not found" on the next attempt.
+    const plannedClips = await prisma.generatedClip.findMany({
+      where: { jobId },
+      select: { id: true, status: true },
+    });
+    // Stage rows are reset to PENDING whenever a stage is re-entered, so "did selection run?" is
+    // answered by the resume point plus the clips it left behind — not by the stage table.
+    const resumeRank = Math.max(stageRank(job.status), resumeFrom ? stageRank(resumeFrom) : -1);
+    if (resumeRank >= stageRank('RENDERING') && plannedClips.length > 0) {
+      const pending = plannedClips.filter((clip) => clip.status !== 'READY');
+      await ensureStatus(jobId, 'RENDERING');
+      await prisma.$transaction(async (tx) => {
+        for (const clip of pending.length > 0 ? pending : plannedClips.slice(0, 1)) {
+          if (clip.status !== 'READY') {
+            await tx.generatedClip.update({ where: { id: clip.id }, data: { status: 'PLANNED' } });
+          }
+          await writeOutbox(tx, {
+            aggregateType: 'GeneratedClip',
+            aggregateId: clip.id,
+            eventType: 'clip.render',
+            queue: 'clipforge.render',
+            payload: { clipId: clip.id, jobId },
+          });
+        }
+      });
+      runtime.logger.info(
+        `job ${jobId} resumed at RENDERING: re-queued ${pending.length || 1} of ${plannedClips.length} clip(s)`,
+      );
+      return;
     }
 
     // ------------------------------ AI_ANALYSIS ------------------------------
@@ -448,16 +483,28 @@ async function runPipeline(jobId: string): Promise<void> {
   }
 }
 
+/** Position of a state on the linear pipeline; control states (RETRYING…) return -1. */
+function stageRank(state: string): number {
+  return PIPELINE_STATES.indexOf(state as never);
+}
+
 async function ensureStatus(jobId: string, expected: string): Promise<void> {
   const job = await prisma.processingJob.findUnique({ where: { id: jobId }, select: { status: true } });
   if (!job) throw new Error(`Job ${jobId} disappeared`);
   if (['CANCELLED', 'FAILED', 'COMPLETED', 'PARTIALLY_COMPLETED'].includes(job.status)) {
     throw new Error(`Job ${jobId} is ${job.status}; aborting stage`);
   }
-  if (job.status !== expected) {
-    // Legal re-entry after a retry: move to the expected stage explicitly.
-    await transitionJob(jobId, expected as never, { workerId: runtime.workerId, leaseSeconds: env.JOB_LEASE_SECONDS });
+  if (job.status === expected) return;
+  // Retries only ever move forward. Dragging a job back to an earlier stage is not a legal
+  // transition (RENDERING -> AI_ANALYSIS threw IllegalTransitionError and masked the real
+  // failure), and re-running completed work would pay for the same analysis twice.
+  const current = stageRank(job.status);
+  const wanted = stageRank(expected);
+  if (current >= 0 && wanted >= 0 && current > wanted) {
+    runtime.logger.info(`job ${jobId} is already at ${job.status}; not rewinding to ${expected}`);
+    return;
   }
+  await transitionJob(jobId, expected as never, { workerId: runtime.workerId, leaseSeconds: env.JOB_LEASE_SECONDS });
 }
 
 async function main() {
