@@ -141,7 +141,10 @@ export class SystemService {
       const parsed = JSON.parse(raw) as { role: string; workerId: string; concurrency?: number; updatedAt: string };
       const age = (Date.now() - new Date(parsed.updatedAt).getTime()) / 1000;
       workers.push({
-        role: parsed.role,
+        // Heartbeats are written as `worker:<role>`; strip the prefix so both the API and the UI
+        // speak in roles ("render", not "worker:render"). A prefix mismatch here once made the
+        // diagnostics report every healthy worker as missing.
+        role: parsed.role.replace(/^worker:/, ''),
         workerId: parsed.workerId,
         concurrency: parsed.concurrency,
         lastHeartbeatAgoSeconds: Math.round(age),
