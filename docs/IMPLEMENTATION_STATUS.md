@@ -181,7 +181,7 @@ Every item below was reproduced first, then fixed, then re-tested. Fixes are com
 
 | Suite | Command | Result |
 | --- | --- | --- |
-| Unit | `npm run test:unit` | **53 passed** (6 files) |
+| Unit | `npm run test:unit` | **54 passed** (6 files) |
 | Integration | `npm run test:integration` | **14 passed** (2 files) — new: retry-budget semantics, ranged reads, out-of-order/duplicate parts |
 | E2E scenarios | `.venv/bin/python tests/e2e/scenarios.py` | **45/45 checks, 19 scenarios** |
 | Authorization matrix | `.venv/bin/python tests/e2e/authorization_matrix.py` | **27/27** |

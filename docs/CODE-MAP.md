@@ -2,17 +2,18 @@
 
 Every file that makes up this project, with its line count and what it does. This is an index, not a copy: the code lives at the path shown. Regenerate with `.venv/bin/python scripts/build-code-map.py` — do not hand-edit.
 
-**142 source files · 20,689 lines · 173 files tracked in git**
+**144 source files · 21,092 lines · 187 files tracked in git**
 
-Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `683528f`
+Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `dbb26c6`
 
 
 ## API server — `apps/api`
 
-62 source files · 7,474 lines
+62 source files · 7,550 lines
 
 | file | lines | purpose |
 | --- | ---: | --- |
+| `apps/api/README.md` | 41 | `apps/api` — backend API and workers |
 | `apps/api/package.json` | 52 | — |
 | `apps/api/src/accounts/accounts.controller.ts` | 95 | — |
 | `apps/api/src/accounts/accounts.module.ts` | 6 | — |
@@ -40,7 +41,7 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `683528f`
 | `apps/api/src/common/services/usage-cost.ts` | 114 | Unit economics for everything the pipeline spends money on. Every `UsageRecord` written to the database carries a `quantity` in a natural unit (second |
 | `apps/api/src/jobs/jobs.controller.ts` | 45 | — |
 | `apps/api/src/jobs/jobs.module.ts` | 8 | — |
-| `apps/api/src/jobs/jobs.service.ts` | 304 | Manual retry: re-enters the state machine and re-enqueues a durable intent. |
+| `apps/api/src/jobs/jobs.service.ts` | 320 | Manual retry: re-enters the state machine and re-enqueues a durable intent. |
 | `apps/api/src/load-env.ts` | 15 | Loads .env for local/container runs. In production the platform injects real environment variables; .env is only used where an operator placed it. |
 | `apps/api/src/main.ts` | 75 | — |
 | `apps/api/src/media/media-validation.service.ts` | 129 | FFprobe-backed media validation. Never trusts the declared MIME type alone. |
@@ -67,10 +68,10 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `683528f`
 | `apps/api/src/usage/usage.module.ts` | 7 | — |
 | `apps/api/src/usage/usage.service.ts` | 221 | Default reporting window: the last 30 days, which is what a monthly review looks at. |
 | `apps/api/src/workers/base.ts` | 124 | Boots a long-lived worker process: - registers itself in Redis with a heartbeat so the admin dashboard shows real liveness - renews leases for the job |
-| `apps/api/src/workers/pipeline.worker.ts` | 469 | Pipeline worker — owns stages PROBING → TRANSCRIBING → AI_ANALYSIS → CLIP_SELECTION → RENDERING hand-off. Durability: every stage transition is a comm |
+| `apps/api/src/workers/pipeline.worker.ts` | 516 | Pipeline worker — owns stages PROBING → TRANSCRIBING → AI_ANALYSIS → CLIP_SELECTION → RENDERING hand-off. Durability: every stage transition is a comm |
 | `apps/api/src/workers/publish.worker.ts` | 468 | Publishing worker — YouTube upload and Instagram Reel publication. Guarantees: - exactly one attempt per (clip, platform, account, operation) is ever  |
 | `apps/api/src/workers/recovery.worker.ts` | 148 | Recovery worker — makes the platform survive crashes. Every 30 seconds it looks for jobs whose worker lease expired while unfinished, checks whether t |
-| `apps/api/src/workers/render.worker.ts` | 335 | Render worker — turns one planned clip into a real vertical MP4 with burned subtitles, stores it, and advances the job once every clip is rendered. |
+| `apps/api/src/workers/render.worker.ts` | 348 | Render worker — turns one planned clip into a real vertical MP4 with burned subtitles, stores it, and advances the job once every clip is rendered. |
 | `apps/api/src/workers/scheduler.worker.ts` | 168 | Scheduler worker — the only process allowed to talk to BullMQ for dispatch. Duties: 1. drain the transactional outbox into BullMQ (1s cadence), 2. ref |
 | `apps/api/src/workers/services-client.ts` | 188 | Typed clients for the Python services. Every call has a timeout and surfaces the service's structured error instead of swallowing it. |
 | `apps/api/src/workspace/workspace.controller.ts` | 78 | Branding assets (logo overlay, intro, outro) must be *uploadable*: the render pipeline reads them from storage, so leaving only a raw `storageKey` fie |
@@ -84,6 +85,7 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `683528f`
 
 | file | lines | purpose |
 | --- | ---: | --- |
+| `apps/web/README.md` | 35 | `apps/web` — dashboard |
 | `apps/web/app/accounts/page.tsx` | 272 | — |
 | `apps/web/app/activity/page.tsx` | 53 | — |
 | `apps/web/app/admin/page.tsx` | 142 | — |
@@ -116,6 +118,7 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `683528f`
 
 | file | lines | purpose |
 | --- | ---: | --- |
+| `packages/database/README.md` | 21 | `packages/database` — schema, client, repositories |
 | `packages/database/package.json` | 8 | — |
 | `packages/database/prisma/migrations/20261109065140_init/migration.sql` | 873 | — |
 | `packages/database/prisma/migrations/20261109081312_brand_asset_audit_action/migration.sql` | 10 | — |
@@ -128,16 +131,19 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `683528f`
 | `packages/database/src/repositories.ts` | 249 | Creates the job + its initial stage row + the outbox intent atomically. Nothing is put in memory: a crash immediately after this commit still results  |
 | `packages/database/src/seed.ts` | 122 | Seed script. Deliberately creates NO user, NO password and NO business configuration. The only rows inserted are the *catalogue* of selectable subtitl |
 | `packages/database/tsconfig.json` | 1 | — |
+| `packages/platform-connectors/README.md` | 7 | `packages/platform-connectors` |
 | `packages/platform-connectors/package.json` | 4 | — |
 | `packages/platform-connectors/src/http.ts` | 116 | Shared HTTP + error classification used by every platform connector. No simulated responses: these functions only ever return what the platform return |
 | `packages/platform-connectors/src/index.ts` | 3 | — |
 | `packages/platform-connectors/src/instagram.ts` | 216 | Instagram content publishing connector — official Meta API only. Documentation verified 2026-11-09: - Latest Graph API version: v27.0 (v26.0 released  |
 | `packages/platform-connectors/src/youtube.ts` | 291 | YouTube Data API v3 connector. Docs (verified 2026-11-09): - videos.insert (resumable upload, 1600 quota units per upload): https://developers.google. |
 | `packages/platform-connectors/tsconfig.json` | 10 | — |
+| `packages/shared-types/README.md` | 6 | `packages/shared-types` |
 | `packages/shared-types/package.json` | 2 | — |
 | `packages/shared-types/src/index.d.ts` | 279 | @clipforge/shared-types Contract shared by the API, workers and the web app. Kept dependency-free. |
 | `packages/shared-types/src/index.ts` | 373 | @clipforge/shared-types Contract shared by the API, workers and the web app. Kept dependency-free. |
 | `packages/shared-types/tsconfig.json` | 1 | — |
+| `packages/validation/README.md` | 7 | `packages/validation` |
 | `packages/validation/package.json` | 4 | — |
 | `packages/validation/src/domain.ts` | 159 | Domain rules that both the API and workers depend on. Pure functions only — unit-tested in tests/unit. |
 | `packages/validation/src/index.ts` | 262 | Usage reporting window. Defaults to the last 30 days; `from`/`to` are inclusive ISO dates so an operator can reconcile a month without knowing the ser |
@@ -149,6 +155,7 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `683528f`
 
 | file | lines | purpose |
 | --- | ---: | --- |
+| `services/ai-engine/README.md` | 25 | `services/ai-engine` — transcription and analysis |
 | `services/ai-engine/app/__init__.py` | 0 | — |
 | `services/ai-engine/app/captions.py` | 167 | Platform-specific caption/metadata generation. YouTube and Instagram get genuinely different copy (search-oriented vs. hook-driven), both constrained  |
 | `services/ai-engine/app/config.py` | 74 | Runtime configuration for the AI engine. Nothing here has a silent default for a business-critical decision: - The AI provider is explicit. There is n |
@@ -160,6 +167,7 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `683528f`
 | `services/ai-engine/app/selection.py` | 566 | Highlight candidate generation, validation, scoring, de-duplication and dual-duration variant planning. Design rules encoded here: * The model propose |
 | `services/ai-engine/app/transcribe.py` | 98 | Accurate transcription with word-level timestamps (faster-whisper). Timestamps come straight from the model and are never invented or rounded to whole |
 | `services/ai-engine/app/vision.py` | 142 | Visual intelligence: describe representative frames with a vision model. Cost control: only frames that survived scene-detection + de-duplication are  |
+| `services/video-processor/README.md` | 21 | `services/video-processor` — rendering |
 | `services/video-processor/app/__init__.py` | 0 | — |
 | `services/video-processor/app/audio.py` | 121 | Audio analysis: loudness, true peak, silence ranges, clipping detection. All measurements come from FFmpeg's own filters — nothing is estimated. |
 | `services/video-processor/app/framing.py` | 238 | Intelligent vertical framing. Face detection uses OpenCV's Haar cascade (CPU-only, no model download) sampled at a fixed rate, then a temporal tracker |
@@ -169,21 +177,23 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `683528f`
 
 ## Tests — `tests`
 
-15 source files · 2,319 lines
+16 source files · 2,553 lines
 
 | file | lines | purpose |
 | --- | ---: | --- |
+| `tests/README.md` | 18 | `tests/` |
 | `tests/e2e/authorization_matrix.py` | 220 | Authorization matrix against a running ClipForge stack. Three questions this answers, with evidence rather than inspection: 1. Can an unauthenticated  |
 | `tests/e2e/full_workflow.py` | 257 | End-to-end workflow test against a running ClipForge stack. Exercises the real HTTP API and the real workers: login → configure workspace → upload a r |
 | `tests/e2e/harness.py` | 187 | Shared helpers for the ClipForge end-to-end suites. Both `authorization_matrix.py` and `scenarios.py` drive the live stack through its real HTTP API w |
-| `tests/e2e/scenarios.py` | 607 | Nineteen end-to-end scenarios against a running ClipForge stack. Each scenario answers one question an operator or reviewer would ask, and prints the  |
+| `tests/e2e/logic_probes.py` | 193 | Adversarial probes of the core algorithms — does the logic hold, not just the happy path? The unit tests check the happy paths the product needs. Thes |
+| `tests/e2e/scenarios.py` | 636 | Nineteen end-to-end scenarios against a running ClipForge stack. Each scenario answers one question an operator or reviewer would ask, and prints the  |
 | `tests/integration/database.test.ts` | 245 | Integration tests against the real PostgreSQL database. These exercise the durable primitives the workers rely on: the job state machine, worker lease |
 | `tests/integration/storage.test.ts` | 89 | Integration tests for the local storage driver's byte-exact behaviour. Both cases are regressions from a real defect: ranged reads that ignored the of |
 | `tests/python/test_render_validation.py` | 210 | Tests for render output validation (probe + content scanning). Run with: .venv/bin/python tests/python/test_render_validation.py (or `npm run test:pyt |
 | `tests/unit/crypto.test.ts` | 51 | — |
 | `tests/unit/diagnostics.test.ts` | 40 | — |
 | `tests/unit/platform-connectors.test.ts` | 103 | — |
-| `tests/unit/state-machine.test.ts` | 90 | — |
+| `tests/unit/state-machine.test.ts` | 102 | — |
 | `tests/unit/usage-cost.test.ts` | 83 | Prices are passed explicitly so the tests describe the arithmetic, not the deployment's environment. The defaults in envSchema are a separate concern  |
 | `tests/unit/validation.test.ts` | 99 | — |
 | `tests/vitest.config.ts` | 19 | — |
@@ -191,11 +201,13 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `683528f`
 
 ## Developer scripts — `scripts`
 
-1 source files · 108 lines
+2 source files · 201 lines
 
 | file | lines | purpose |
 | --- | ---: | --- |
+| `scripts/README.md` | 18 | scripts/ |
 | `scripts/build-code-bundle.py` | 108 | Build a single self-contained HTML file containing every source file of the project. The platform's file viewer renders one file at a time, so "where  |
+| `scripts/build-code-map.py` | 93 | Regenerate docs/CODE-MAP.md: every tracked file with its line count and purpose. Kept as a script rather than hand-written so the map cannot drift fro |
 
 ## Infrastructure & deployment
 
@@ -203,9 +215,10 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `683528f`
 
 | file | lines | purpose |
 | --- | ---: | --- |
-| `README.md` | 95 | ClipForge AI |
+| `README.md` | 100 | ClipForge AI |
 | `docker-compose.dev.yml` | 178 | Development stack: every service hot-reloads or runs from source, storage is local. |
 | `docker-compose.prod.yml` | 218 | Production stack: built images, Caddy TLS front door, scheduled PostgreSQL backups. |
+| `infrastructure/README.md` | 17 | `infrastructure/` |
 | `infrastructure/monitoring/README.md` | 25 | Monitoring |
 | `infrastructure/monitoring/alerts.yml` | 38 | — |
 | `infrastructure/monitoring/prometheus.yml` | 34 | Scrape configuration for the metrics already exposed by the API (/api/system/health) |
@@ -229,11 +242,12 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `683528f`
 | `docs/AI-PIPELINE.md` | 93 | AI pipeline |
 | `docs/ARCHITECTURE.md` | 87 | Architecture |
 | `docs/CONFIGURATION.md` | 79 | Configuration |
-| `docs/IMPLEMENTATION_STATUS.md` | 210 | Implementation status — independent audit round |
+| `docs/FOLDER-STRUCTURE.md` | 87 | Folder structure |
+| `docs/IMPLEMENTATION_STATUS.md` | 213 | Implementation status — independent audit round |
 | `docs/OPERATIONS.md` | 76 | Operations |
 | `docs/PLATFORM-SETUP.md` | 63 | Platform setup (Google / Meta / storage) |
-| `docs/TESTING.md` | 90 | Testing |
-| `docs/VERIFICATION.md` | 152 | Verification report |
+| `docs/TESTING.md` | 112 | Testing |
+| `docs/VERIFICATION.md` | 240 | Verification report |
 | `docs/openapi.json` | 1 | — |
 
 ---

@@ -88,3 +88,15 @@ describe('RETRYING is never a dead end', () => {
     expect(canTransition('RETRYING', 'RENDERING')).toBe(true);
   });
 });
+
+describe('terminal jobs are finished, not cancellable', () => {
+  it('has no FAILED -> CANCELLED edge, so the API must answer 409 instead of throwing', () => {
+    // The cancel endpoint assumed any non-completed job could be cancelled and let the
+    // IllegalTransitionError escape as HTTP 500. There is deliberately no such edge: a failed job
+    // is retried or left alone, never cancelled.
+    expect(canTransition('FAILED', 'CANCELLED')).toBe(false);
+    expect(canTransition('FAILED', 'RETRYING')).toBe(true);
+    expect(canTransition('COMPLETED', 'CANCELLED')).toBe(false);
+    expect(canTransition('CANCELLED', 'CANCELLED')).toBe(false);
+  });
+});

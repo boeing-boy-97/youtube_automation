@@ -100,7 +100,7 @@ Measured on 2026-11-09 against the running stack (see "Verification pass" below 
 | Suite | Command | Result |
 | --- | --- | --- |
 | Typecheck (all workspaces) | `npx tsc -p <ws>/tsconfig.json --noEmit` ×6 | clean (`packages/*` ×4, `apps/api`, `apps/web`) |
-| Unit | `npm run test:unit` | **53 passed**, 6 files |
+| Unit | `npm run test:unit` | **54 passed**, 6 files |
 | Integration (real PostgreSQL + Redis) | `npm run test:integration` | **14 passed** (database 11, storage 3) |
 | Python (renderer logic) | `.venv/bin/python tests/python/test_render_validation.py` | **13 passed** |
 | End-to-end (HTTP, real FFmpeg renders) | `.venv/bin/python tests/e2e/scenarios.py` | **45/45 checks, 19 scenarios** |
@@ -152,10 +152,26 @@ adversarially (`tests/e2e/logic_probes.py`).
    recorded per variant in `renderProfile.skippedBrandAssets`. Verified: the same job now renders
    to `COMPLETED` and the variant records
    `["logo:…", "intro:…", "outro:…"]` as skipped.
-3. **The e2e suite aborted instead of reporting (test-harness bug).** A failed pipeline made
+3. **Cancelling a `FAILED` job returned HTTP 500 (product bug).** The cancel endpoint treated
+   every non-completed job as cancellable, but the state machine has no `FAILED → CANCELLED` edge,
+   so `IllegalTransitionError` escaped as `INTERNAL_ERROR`. *Fix:* `FAILED` is reported as
+   `409 CONFLICT` ("Job is already FAILED") and any residual illegal transition is mapped to the same
+   conflict; a unit test now pins the absence of that edge. Verified live: cancel a `FAILED` job →
+   `409 CONFLICT`, retry the same job → `201` and the pipeline resumes from `PROBING`.
+4. **The e2e suite aborted instead of reporting (test-harness bug).** A failed pipeline made
    scenario 10 raise `IndexError`, so scenarios 10–19 reported nothing. Each scenario now runs
    inside a guard, clip-dependent scenarios fail with the job's status and message, and the run
    always reaches a summary. The suite is green at **45/45** after the fix.
+
+### Re-verified on a rebuilt environment
+
+After the fixes were committed, the whole stack was rebuilt from nothing (fresh OS packages —
+PostgreSQL 17.11, Redis 7, FFmpeg 7.1.5; fresh `npm install`; fresh Python venv with
+`faster-whisper`; fresh database with all migrations) and the suites re-run against it:
+typecheck 6/6 clean · unit **54/54** · integration **14/14** · Python **13/13** · logic probes
+**38/38** · e2e scenarios **45/45** (27/27 authorization checks inside scenario 18) · real
+faster-whisper transcription (`tiny.en`, 90 word timestamps) · real FFmpeg render (404×720, 9:16,
+`quality.passed=true`).
 
 `tests/e2e/scenarios.py` exit code is now a reliable gate: `0` only when every scenario passed.
 

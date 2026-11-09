@@ -1,5 +1,12 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { prisma, writeOutbox, transitionJob, appendAuditLog, ConfigurationRequiredError } from '@clipforge/database';
+import {
+  prisma,
+  writeOutbox,
+  transitionJob,
+  appendAuditLog,
+  ConfigurationRequiredError,
+  IllegalTransitionError,
+} from '@clipforge/database';
 import type { CreateJobInput } from '@clipforge/validation';
 import { PIPELINE_STATES, type JobState } from '@clipforge/shared-types';
 
@@ -216,10 +223,19 @@ export class JobsService {
   async cancel(id: string, ctx: RequestContext) {
     const job = await prisma.processingJob.findFirst({ where: { id, workspaceId: ctx.workspaceId } });
     if (!job) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Job not found' });
-    if (['COMPLETED', 'CANCELLED', 'PARTIALLY_COMPLETED'].includes(job.status)) {
+    // FAILED is terminal for cancellation too: there is no FAILED -> CANCELLED edge, so asking to
+    // cancel a failed job used to surface an IllegalTransitionError as HTTP 500 instead of a conflict.
+    if (['COMPLETED', 'CANCELLED', 'PARTIALLY_COMPLETED', 'FAILED'].includes(job.status)) {
       throw new ConflictException({ code: 'CONFLICT', message: `Job is already ${job.status}` });
     }
-    await transitionJob(id, 'CANCELLED', { progressDetail: `Cancelled by ${ctx.email}` });
+    try {
+      await transitionJob(id, 'CANCELLED', { progressDetail: `Cancelled by ${ctx.email}` });
+    } catch (error) {
+      if (error instanceof IllegalTransitionError) {
+        throw new ConflictException({ code: 'CONFLICT', message: `Job in ${job.status} cannot be cancelled` });
+      }
+      throw error;
+    }
     await prisma.jobStage.updateMany({ where: { jobId: id, status: 'RUNNING' }, data: { status: 'CANCELLED', finishedAt: new Date() } });
     await appendAuditLog({
       workspaceId: ctx.workspaceId,
