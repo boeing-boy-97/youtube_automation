@@ -15,100 +15,28 @@ Run: .venv/bin/python tests/e2e/authorization_matrix.py
 """
 from __future__ import annotations
 
-import http.cookiejar
-import json
-import os
-import subprocess
 import sys
-import urllib.error
-import urllib.request
 import uuid
+from pathlib import Path
 
-API = os.environ.get("CLIPFORGE_API", "http://127.0.0.1:4000")
-WEB_ORIGIN = os.environ.get("CLIPFORGE_WEB_ORIGIN", "http://127.0.0.1:3000")
-ADMIN = ("admin@clipforge.local", "Sandbox-Admin-2026")
-MEMBER = ("member@clipforge.local", "Member-Passw0rd-2026")
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://clipforge:clipforge_local_dev@127.0.0.1:5432/clipforge")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from harness import (  # noqa: E402
+    ADMIN,
+    MEMBER,
+    Client,
+    create_second_tenant,
+    delete_tenant,
+    flush_login_ratelimit,
+    sql,
+)
 
 RESULTS: list[dict] = []
 
 
 def record(name: str, ok: bool, detail: str) -> None:
     RESULTS.append({"name": name, "ok": ok, "detail": detail})
-    print(f"[{'PASS' if ok else 'FAIL'}] {name}: {detail}")
-
-
-class Client:
-    def __init__(self) -> None:
-        self.jar = http.cookiejar.CookieJar()
-        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar))
-        self.csrf: str | None = None
-
-    def _request(self, method: str, path: str, body: dict | None = None, csrf: bool = True):
-        data = json.dumps(body).encode() if body is not None else None
-        req = urllib.request.Request(API + path, data=data, method=method)
-        req.add_header("content-type", "application/json")
-        req.add_header("origin", WEB_ORIGIN)
-        if csrf and self.csrf:
-            req.add_header("x-csrf-token", self.csrf)
-        try:
-            with self.opener.open(req, timeout=120) as response:
-                raw = response.read()
-                try:
-                    return response.status, (json.loads(raw) if raw else None)
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    # Binary payloads (e.g. the media probe) are a pass, not a parse error.
-                    return response.status, {"bytes": len(raw)}
-        except urllib.error.HTTPError as exc:
-            raw = exc.read()
-            try:
-                return exc.code, json.loads(raw) if raw else None
-            except json.JSONDecodeError:
-                return exc.code, raw[:200].decode("utf-8", "replace")
-
-    def get(self, path: str, csrf: bool = True):
-        return self._request("GET", path, None, csrf)
-
-    def post(self, path: str, body: dict | None = None, csrf: bool = True):
-        return self._request("POST", path, body if body is not None else {}, csrf)
-
-    def refresh_csrf(self) -> None:
-        """Authenticated requests use the token bound to the session, not the anonymous one.
-
-        `GET /api/auth/csrf` issues the pre-session double-submit token used only by
-        login/register; every later unsafe call must echo the token from `GET /api/auth/session`.
-        Getting this wrong makes a CSRF blanket-403 look like a passing authorization test.
-        """
-        status, body = self._request("GET", "/api/auth/session", None, csrf=False)
-        if status == 200 and isinstance(body, dict) and body.get("authenticated") and body.get("csrfToken"):
-            self.csrf = body["csrfToken"]
-            return
-        status, body = self._request("GET", "/api/auth/csrf", None, csrf=False)
-        if status == 200 and isinstance(body, dict):
-            self.csrf = body.get("csrfToken")
-
-    def login(self, email: str, password: str) -> int:
-        self.refresh_csrf()
-        status, _ = self.post("/api/auth/login", {"email": email, "password": password})
-        if status < 300:
-            self.refresh_csrf()
-        return status
-
-
-def sql(statement: str) -> str:
-    """Run SQL through psql. Test-only: plain identifiers, no user input."""
-    proc = subprocess.run(
-        ["psql", DATABASE_URL, "-t", "-A", "-c", statement], capture_output=True, text=True, check=False
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(f"psql failed: {proc.stderr[-400:]}")
-    return proc.stdout.strip()
-
-
-def flush_login_ratelimit() -> None:
-    # Scripted logins from one IP would otherwise trip the login rate limiter, which is working
-    # exactly as designed.
-    subprocess.run(["redis-cli", "DEL", "clipforge:ratelimit:auth-login:127.0.0.1"], capture_output=True, check=False)
+    print(f"[{'PASS' if ok else 'FAIL'}] {name}: {detail}", flush=True)
 
 
 def main() -> int:
@@ -204,25 +132,10 @@ def main() -> int:
     record("admin resources resolved for the cross-tenant probe", all([admin_job, admin_clip, admin_source]), f"job={admin_job} clip={admin_clip} source={admin_source}")
 
     suffix = uuid.uuid4().hex[:8]
-    other_user_id = str(uuid.uuid4())
-    other_workspace_id = str(uuid.uuid4())
-    # Password hash reuses the sandbox admin's, so the probe account logs in with the same password.
-    sql(
-        f"""
-        BEGIN;
-        INSERT INTO "User" (id, email, "passwordHash", "displayName", role, status, "updatedAt")
-          SELECT '{other_user_id}', 'tenant-b-{suffix}@clipforge.local', "passwordHash", 'Tenant B Owner', 'OWNER', 'ACTIVE', now()
-          FROM "User" WHERE email = 'admin@clipforge.local';
-        INSERT INTO "Workspace" (id, name, slug, "updatedAt")
-          VALUES ('{other_workspace_id}', 'Tenant B {suffix}', 'tenant-b-{suffix}', now());
-        INSERT INTO "WorkspaceMember" (id, "workspaceId", "userId", role)
-          VALUES (gen_random_uuid(), '{other_workspace_id}', '{other_user_id}', 'OWNER');
-        COMMIT;
-        """
-    )
+    other_email, other_password, other_user_id, other_workspace_id = create_second_tenant(suffix)
 
     other = Client()
-    status = other.login(f"tenant-b-{suffix}@clipforge.local", ADMIN[1])
+    status = other.login(other_email, other_password)
     record("second tenant can log in", status < 300, f"HTTP {status}")
 
     status, body = other.get("/api/jobs")
@@ -262,7 +175,7 @@ def main() -> int:
     denied("second tenant cannot cancel another tenant's job", status, body)
     status, body = other.post(f"/api/jobs/{admin_job}/retry")
     denied("second tenant cannot retry another tenant's job", status, body)
-    status, body = other._request("PATCH", f"/api/clips/{admin_clip}/metadata", {"platform": "YOUTUBE", "title": "hijacked"})
+    status, body = other.request("PATCH", f"/api/clips/{admin_clip}/metadata", {"platform": "YOUTUBE", "title": "hijacked"})
     denied("second tenant cannot patch another tenant's clip metadata", status, body)
 
     # ------------------- 3b. operator-only workspace surfaces ------------------
@@ -276,22 +189,21 @@ def main() -> int:
         "member cannot enable automatic publishing": ("POST", "/api/publishing/enable", {"platform": "YOUTUBE", "connectedAccountId": str(uuid.uuid4()), "enabled": True}),
     }
     for label, (method, path, payload) in operator_mutations.items():
-        status, body = member._request(method, path, payload)
+        status, body = member.request(method, path, payload)
         code = ((body or {}).get("error") or {}).get("code") if isinstance(body, dict) else None
         record(label, status == 403 and code == "FORBIDDEN", f"HTTP {status} ({code})")
 
     # Controls: without these, every "denied" result above could just be a broken CSRF token.
     status, config_body = admin.get("/api/configuration")
     current_fps = ((config_body or {}).get("values") or {}).get("render.fps", 30)
-    status, body = admin._request("PUT", "/api/configuration", {"entries": [{"key": "render.fps", "value": current_fps}]})
+    status, body = admin.request("PUT", "/api/configuration", {"entries": [{"key": "render.fps", "value": current_fps}]})
     record("control: owner can write valid workspace configuration", status == 200, f"HTTP {status}")
     # And the same member who was refused a settings write can still do the actual work.
     status, body = member.get("/api/clips")
     record("control: member can still read clips", status == 200, f"HTTP {status}")
 
     # ------------------------------- 4. cleanup --------------------------------
-    sql(f'DELETE FROM "Workspace" WHERE id = \'{other_workspace_id}\';')
-    sql(f'DELETE FROM "User" WHERE id = \'{other_user_id}\';')
+    delete_tenant(other_user_id, other_workspace_id)
     leftover = sql(f'SELECT count(*) FROM "User" WHERE id = \'{other_user_id}\';').strip()
     record("cross-tenant probe cleaned up", leftover == "0", f"remaining user rows: {leftover}")
 

@@ -140,6 +140,18 @@ export async function transitionJob(jobId: string, to: JobState, options: Transi
       },
     });
 
+    // A stage row records when it started and when it finished but never how long it took, so the
+    // timeline showed "—" for every stage. Prisma cannot compute a duration in an update, so this
+    // derives it from the two timestamps it already stores.
+    await tx.$executeRaw`
+      UPDATE "JobStage"
+         SET "durationMs" = GREATEST(0, ROUND(EXTRACT(EPOCH FROM ("finishedAt" - "startedAt")) * 1000))::int
+       WHERE "jobId" = ${jobId}::uuid
+         AND "durationMs" IS NULL
+         AND "startedAt" IS NOT NULL
+         AND "finishedAt" IS NOT NULL
+    `;
+
     if (options.enqueue) {
       await writeOutbox(tx, {
         aggregateType: 'ProcessingJob',
