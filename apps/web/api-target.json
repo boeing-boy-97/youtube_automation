@@ -1,0 +1,4 @@
+{
+  "apiOrigin": null,
+  "note": "Set apiOrigin to your public API origin (https, no trailing slash, no /api suffix), e.g. \"https://clipforge-api.onrender.com\", commit it, and Vercel rebuilds automatically. API_INTERNAL_URL, when set in Vercel, takes precedence over this file."
+}

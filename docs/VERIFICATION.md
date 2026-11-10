@@ -315,7 +315,9 @@ Verified in this sandbox:
 
 | Check | Result |
 | --- | --- |
-| `VERCEL=1 API_INTERNAL_URL=http://127.0.0.1:4000 next build` | **fails on purpose** — "API_INTERNAL_URL must be set to the public API origin…" |
+| `VERCEL=1 next build` with **no** origin configured | build **succeeds** against the sentinel with a loud deployment notice; `/healthz` → `apiTarget: https://api-not-configured.invalid`, hint names both ways to set it; `/login` renders “This dashboard cannot reach its API” |
+| `VERCEL=1 API_INTERNAL_URL=http://127.0.0.1:4000 next build` | rejected as a local address → sentinel + notice (a hosted build never ships pointing at localhost) |
+| `VERCEL=1 API_INTERNAL_URL=https://clipforge-api.onrender.com/api/ next build` | compiles, warns that the value was normalised to `https://clipforge-api.onrender.com` |
 | `VERCEL=1 API_INTERNAL_URL=https://example.onrender.com next build` | passes, `/healthz` compiled as a dynamic route |
 | `GET /healthz` with the API up | `200` — `{"ok":true,…,"upstream":{"status":200,"latencyMs":18}}` |
 | `GET /healthz` with the API killed | `503` — `{"ok":false,…,"upstream":{"status":null,"error":"fetch failed"}}` |

@@ -42,7 +42,8 @@ Session cookies therefore stay **first-party** — no CORS, no token in localSto
 | File | Purpose |
 | --- | --- |
 | `apps/web/vercel.json` | pins the framework, region `bom1` (Mumbai), and security headers |
-| `apps/web/next.config.ts` | fails a hosted build that has no `API_INTERNAL_URL` (the proxy target is baked in at build time — a wrong value would ship a dashboard that calls `127.0.0.1`) |
+| `apps/web/next.config.ts` | resolves the API origin for the `/api` + `/media` rewrites (build time), from `API_INTERNAL_URL` → `apps/web/api-target.json` → local default. A hosted build with neither is still produced, against an unresolvable sentinel, so the deployment succeeds and says what is missing instead of failing the build |
+| `apps/web/api-target.json` | the same origin, committed to git — for anyone who would rather edit a file than a dashboard setting |
 | `render.yaml` | all four backend services as a Render blueprint, using the existing Dockerfiles |
 | `apps/api/scripts/run-workers.sh` | runs the five worker roles in one container and restarts them as a group |
 | `UPLOAD_PART_SIZE_MIB` (new env var) | chunk size the API advertises to the browser, default 16 MiB |
@@ -50,6 +51,19 @@ Session cookies therefore stay **first-party** — no CORS, no token in localSto
 | `apps/web/app/healthz/route.ts` | **`/healthz`** on the dashboard — reports the baked-in API origin and probes it live (`ok`, upstream status, latency, region, commit) |
 | `apps/web/components/backend-down.tsx` | the screen shown when the API is unreachable, with the three settings to check and a self-check button |
 | `/admin` → “Dashboard → API link” | the same probe inside the app, refreshed every 30 s |
+
+### Where the API origin comes from (in order)
+
+| # | Source | When it applies |
+| --- | --- | --- |
+| 1 | `API_INTERNAL_URL` environment variable | set in Vercel → Settings → Environment Variables (Production, Preview, Development) |
+| 2 | `apps/web/api-target.json` → `{ "apiOrigin": "https://…" }` | committed to git; Vercel rebuilds on push. Use this if the dashboard UI is a pain |
+| 3 | `http://127.0.0.1:4000` | local `next dev` / `next build` only |
+
+A value pasted with a trailing slash or a `/api` suffix is normalised (that mistake would otherwise
+rewrite to `/api/api/…`). A hosted build with no origin at all is still produced — against
+`https://api-not-configured.invalid` — so the deploy succeeds, every call fails fast, and the UI says
+so. Changing the origin always needs a **redeploy**, because it is compiled into the rewrites.
 
 ---
 
@@ -132,8 +146,9 @@ variables you still have to set. Without the Vercel CLI it prints the dashboard 
    runtime (`GET /api/auth/providers`). Put the `FIREBASE_*` service-account values on the API
    instead — `docs/FIREBASE-AUTH.md` steps 5–9.
 
-4. Deploy. The build fails on purpose if `API_INTERNAL_URL` is missing or points at localhost —
-   that is the guard doing its job.
+4. Deploy. If `API_INTERNAL_URL` is missing the build still **succeeds**, but the log prints a
+   deployment notice and the app then shows “This dashboard cannot reach its API” with `/healthz`
+   naming the setting. Nothing is ever shipped silently pointing at `127.0.0.1`.
 5. Copy the deployment URL (e.g. `https://youtube-automation.vercel.app`) and put it into the Render
    API service as `APP_URL` **and** `ALLOWED_ORIGINS`, then redeploy the API. Until you do, the API
    rejects the dashboard's `Origin` header (CSRF/origin checks are strict by design).
@@ -176,7 +191,7 @@ The dashboard now diagnoses this instead of logging you out. Three places say th
 | `/healthz` → `ok:false`, `upstream.error: "fetch failed"` | API down, or `API_INTERNAL_URL` wrong/typo'd | start the API; correct the env var **and redeploy** (it is read at build time) |
 | `/healthz` → 200, but sign-in returns 403 `CSRF_FAILED` | `APP_URL` / `ALLOWED_ORIGINS` on the API do not match the Vercel domain | set both to the exact Vercel origin, restart the API |
 | `/healthz` → 200, sign-in 401 for a correct password | API was bootstrapped with different data, or login rate-limit (10 per 300 s) | check the API logs; wait out the limiter |
-| build fails with “API_INTERNAL_URL is missing or unusable” | the env var is missing, set to `http://localhost:4000`, or not a URL | the build log now prints the exact clicks: Settings → Environment Variables → add `API_INTERNAL_URL` for **Production, Preview and Development** → then **redeploy** (the value is frozen at build time, editing it alone changes nothing) |
+| build log prints “⚠ ClipForge deployment notice — No usable API origin” | neither `API_INTERNAL_URL` nor `api-target.json` gave an origin (or the value was `localhost`/not a URL) | set it, then redeploy: **A** Settings → Environment Variables → `API_INTERNAL_URL` (Production + Preview + Development), or **B** commit `apps/web/api-target.json` → `{ "apiOrigin": "https://your-api-host" }`. The origin is frozen into the rewrites at build time, so a redeploy is always required |
 | build succeeded but every page says “cannot reach its API” | the variable points at a host that is not running (a placeholder, or the API is asleep) | open `https://<app>/healthz` — it names the origin and the failure; fix the variable and redeploy |
 | images/video break but the UI is fine | `/media` rewrite target wrong, or `STORAGE_DRIVER=local` on the API | use `STORAGE_DRIVER=s3` + `S3_PUBLIC_BASE_URL` on a hosted API |
 

@@ -1,86 +1,106 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import type { NextConfig } from 'next';
 
 /**
- * The browser only ever talks to this Next.js origin. /api and /media are
- * proxied to the NestJS API, so session cookies stay same-origin (no CORS,
- * no token in localStorage).
+ * The browser only ever talks to this Next.js origin. /api and /media are proxied to the NestJS
+ * API through rewrites, so session cookies stay same-origin (no CORS, no token in localStorage).
  *
- * The proxy target is read when the config is evaluated, i.e. at BUILD time, and baked into the
- * rewrite rules. A dashboard built without it would silently point at 127.0.0.1 and fail in the
- * browser with "connection refused" on every request, so a hosted build refuses to be produced
- * without a real target.
+ * Rewrites are compiled at BUILD time, so the API origin is a build input, not a runtime setting.
+ * It is resolved from, in order:
+ *
+ *   1. process.env.API_INTERNAL_URL            (Vercel → Settings → Environment Variables)
+ *   2. ./api-target.json  { "apiOrigin": … }   (commit the origin; Vercel rebuilds on push)
+ *   3. http://127.0.0.1:4000                   (local development)
+ *
+ * A hosted build that has neither (1) nor (2) no longer fails: it is built against a sentinel host
+ * that cannot resolve, so the deployment succeeds, every request fails visibly, the dashboard shows
+ * "This dashboard cannot reach its API" and /healthz names the missing setting. A failing build only
+ * ever blocked people who had not yet stood up an API; a deployment that explains itself does not.
  */
 const hosted = Boolean(process.env.VERCEL || process.env.NETLIFY || process.env.CI_HOSTED_BUILD);
-const configured = process.env.API_INTERNAL_URL?.trim();
+const SENTINEL = 'https://api-not-configured.invalid';
+const LOCAL_DEFAULT = 'http://127.0.0.1:4000';
 
-/**
- * Accept what people actually paste: a trailing slash, or `…/api`, both of which would otherwise
- * produce `https://host/api/api/…` and 404 every call. Normalised here rather than left to chance.
- */
+function fromFile(): { origin: string | null; note: string | null } {
+  try {
+    const file = path.join(process.cwd(), 'api-target.json');
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as { apiOrigin?: unknown };
+    const value = typeof parsed.apiOrigin === 'string' ? parsed.apiOrigin.trim() : '';
+    return { origin: value.length > 0 ? value : null, note: null };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { origin: null, note: null };
+    return { origin: null, note: `api-target.json could not be read (${(error as Error).message}).` };
+  }
+}
+
+/** Accept what people actually paste: a trailing slash, or `…/api` (which would give /api/api/…). */
 function normalise(raw: string): string {
   let value = raw.trim().replace(/\/+$/, '');
   if (/\/api$/i.test(value)) value = value.slice(0, -4).replace(/\/+$/, '');
   return value;
 }
 
-function fail(reason: string): never {
-  throw new Error(
-    [
-      '',
-      '  ── API_INTERNAL_URL is missing or unusable ────────────────────────────────────────────',
-      `  ${reason}`,
-      '',
-      '  The dashboard proxies /api and /media to the API through rewrites, and those rewrites are',
-      '  compiled at build time. There is nothing to fall back to: without this value the build',
-      '  would ship a frontend that calls 127.0.0.1, which fails in every browser.',
-      '',
-      '  Fix it in Vercel (takes about a minute):',
-      '    1. Open the project → Settings → Environment Variables',
-      '    2. Name:  API_INTERNAL_URL',
-      '       Value: the public origin of YOUR API, e.g. https://clipforge-api.onrender.com',
-      '              (https, no trailing slash, no /api suffix — a wrong suffix is stripped for you)',
-      '    3. Tick Production, Preview and Development → Save',
-      '    4. Deployments → the newest one → ⋯ → Redeploy  (the value is frozen at build time, so',
-      '       editing the variable alone changes nothing)',
-      '',
-      '  Do you not have the API running yet? Deploy it first — docs/DEPLOY-VERCEL.md §2',
-      '  (render.yaml is the blueprint) or docs/DEPLOYMENT.md for a single-server setup.',
-      '  Then verify with:  curl https://<your-api-host>/api/system/health',
-      '  and after deploying the dashboard:  https://<your-app>.vercel.app/healthz',
-      '',
-      '  Deploying from the CLI instead?  ./scripts/deploy-vercel.sh https://<your-api-host>',
-      '',
-      '  Setting a placeholder just to unblock this build is allowed but pointless: the deployed',
-      '  dashboard will show "This dashboard cannot reach its API" and /healthz will name the origin',
-      '  it failed to reach. It never pretends to work.',
-      '  ───────────────────────────────────────────────────────────────────────────────────────',
-      '',
-    ].join('\n'),
-  );
+function warn(lines: string[]): void {
+  console.warn(['', '  ⚠  ClipForge deployment notice', ...lines.map((line) => `     ${line}`), ''].join('\n'));
 }
 
-if (hosted) {
-  if (!configured) {
-    fail('It is not set for this build. A hosted build must be given the API origin explicitly.');
+const fromEnv = process.env.API_INTERNAL_URL?.trim();
+const fromJson = fromEnv ? { origin: null, note: null } : fromFile();
+
+let target: string;
+let problem: string | null = null;
+
+const isLocalAddress = (value: string) => /127\.0\.0\.1|localhost|0\.0\.0\.0/.test(value);
+
+if (fromEnv) {
+  target = normalise(fromEnv);
+  if (!/^https?:\/\//.test(target)) {
+    problem = `API_INTERNAL_URL is "${fromEnv}", which is not a URL.`;
+    target = SENTINEL;
+  } else if (hosted && isLocalAddress(target)) {
+    // Only a *hosted* build is wrong to point at localhost; a local build is supposed to.
+    problem = `API_INTERNAL_URL points at "${fromEnv}", which is the build container, not a reachable API.`;
+    target = SENTINEL;
+  } else if (target !== fromEnv) {
+    warn([`API_INTERNAL_URL "${fromEnv}" was normalised to "${target}" (trailing slash or /api suffix dropped).`]);
   }
-  if (/127\.0\.0\.1|localhost|0\.0\.0\.0/.test(configured)) {
-    fail(`It points at "${configured}", which is this container, not a reachable API.`);
+} else if (fromJson.origin) {
+  target = normalise(fromJson.origin);
+  if (!/^https?:\/\//.test(target) || (hosted && isLocalAddress(target))) {
+    problem = `api-target.json holds "${fromJson.origin}", which is not a public http(s) origin.`;
+    target = SENTINEL;
+  } else {
+    warn([`Using the API origin committed in apps/web/api-target.json: ${target}`]);
   }
-  if (!/^https?:\/\//.test(configured)) {
-    fail(`"${configured}" is not a URL — it must start with https:// (or http:// for an internal host).`);
+} else {
+  target = hosted ? SENTINEL : LOCAL_DEFAULT;
+  if (hosted) {
+    problem = fromJson.note ?? 'Neither API_INTERNAL_URL nor apps/web/api-target.json gave an API origin.';
   }
 }
 
-const target = normalise(configured ?? 'http://127.0.0.1:4000');
-
-if (configured && normalise(configured) !== configured) {
-  // Loud, because a silent rewrite makes the value in the Vercel UI disagree with what was built.
-  console.warn(`[clipforge] API_INTERNAL_URL "${configured}" was normalised to "${target}" (dropped a trailing slash or /api suffix).`);
+if (problem) {
+  warn([
+    `No usable API origin for this build: ${problem}`,
+    '',
+    `The build will succeed, pointing at ${SENTINEL}, so /api and /media fail fast instead of`,
+    'silently calling 127.0.0.1. Sign-in cannot work until this is set.',
+    '',
+    'Fix it one of two ways, then redeploy (the origin is frozen into the rewrites at build time):',
+    '  A. Vercel → Settings → Environment Variables → API_INTERNAL_URL = https://your-api-host',
+    '  B. Edit apps/web/api-target.json in GitHub: { "apiOrigin": "https://your-api-host" }',
+    '',
+    'Check the result at https://<your-app>.vercel.app/healthz — it names the origin it uses.',
+  ]);
 }
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Inlined at build time so /healthz can report what this deployment was actually compiled with,
+  // even when the environment variable is absent at runtime.
+  env: { CLIPFORGE_API_TARGET: target },
   async rewrites() {
     return [
       { source: '/api/:path*', destination: `${target}/api/:path*` },

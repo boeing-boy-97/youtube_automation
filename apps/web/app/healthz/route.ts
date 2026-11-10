@@ -13,7 +13,10 @@ import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-const TARGET = (process.env.API_INTERNAL_URL ?? 'http://127.0.0.1:4000').replace(/\/+$/, '');
+// Inlined by next.config at build time, so this is what the rewrites were compiled with — the
+// environment variable itself need not exist at runtime.
+const TARGET = (process.env.CLIPFORGE_API_TARGET ?? process.env.API_INTERNAL_URL ?? 'http://127.0.0.1:4000').replace(/\/+$/, '');
+const NOT_CONFIGURED = TARGET.includes('api-not-configured.invalid');
 
 export async function GET() {
   const started = Date.now();
@@ -43,7 +46,9 @@ export async function GET() {
       commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
       hint: ok
         ? 'The dashboard proxy reaches the API.'
-        : 'Set API_INTERNAL_URL to the public API origin (https, no /api suffix) and redeploy — the rewrites are baked at build time.',
+        : NOT_CONFIGURED
+          ? 'No API origin was configured for this build. Set API_INTERNAL_URL in Vercel (or apiOrigin in apps/web/api-target.json) and redeploy — rewrites are baked at build time.'
+          : 'Set API_INTERNAL_URL to the public API origin (https, no /api suffix) and redeploy — the rewrites are baked at build time.',
     },
     { status: ok ? 200 : 503, headers: { 'cache-control': 'no-store' } },
   );
