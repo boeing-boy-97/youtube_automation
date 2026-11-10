@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useBootstrap, useLogin, useRegister, useSession } from '@/lib/hooks';
 import { Card, Field } from '@/components/ui';
+import { BackendDown } from '@/components/backend-down';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -20,6 +21,8 @@ export default function LoginPage() {
   const [workspaceName, setWorkspaceName] = useState('');
   const [bootstrapToken, setBootstrapToken] = useState('');
   const error = login.error ?? bootstrap.error ?? register.error;
+  // No API means no login: show the deployment diagnosis rather than a form that cannot succeed.
+  if (session.error) return <BackendDown message={session.error.message} onRetry={() => void session.refetch()} />;
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();

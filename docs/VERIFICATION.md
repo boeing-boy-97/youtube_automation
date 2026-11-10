@@ -298,6 +298,34 @@ audited in a real headless Chromium at five viewports. Everything below was exec
 | Media protocol | `200` + ETag + `cache-control: private, max-age=86400, immutable`; `304` on `If-None-Match` (0 bytes); `206` with `content-range: bytes 0-2047/12114378` |
 | Compression | `content-encoding: gzip` on a large JSON body, absent on `video/mp4` (range requests must never be re-encoded) |
 
+### Vercel-dashboard hardening (2026-11-09)
+
+The reported defect: with the API down, the dashboard logged the user out. Root cause found by
+killing the API and loading `/` — `useSession()` failed, the shell treated any failure as "not
+authenticated" and rendered "Redirecting to sign in…" while the browser console showed `500`.
+
+| # | Defect | Reproduction | Fix |
+| --- | --- | --- | --- |
+| 17 | A dead API looked like a logout | killed the API, loaded `/` → "Redirecting to sign in…" + console 500 | `ApiError` code `BACKEND_UNREACHABLE` for network failures, 502/503/504 **and** any 5xx without the API's `error` envelope; shell + login render a diagnosis screen instead |
+| 18 | No way to tell *what* the build was pointed at | `/healthz` did not exist | new `apps/web/app/healthz/route.ts` — reports baked API origin, upstream status/latency/error, region, commit; 200 when reachable, 503 when not |
+| 19 | Operators had no in-app signal | — | `/admin` → "Dashboard → API link" card, 30 s refresh |
+| 20 | Deployment was multi-step and silent | — | `scripts/deploy-vercel.sh` refuses localhost/http origins, curls `/api/system/health` first, builds with that origin, then prints the two API-side env vars |
+
+Verified in this sandbox:
+
+| Check | Result |
+| --- | --- |
+| `VERCEL=1 API_INTERNAL_URL=http://127.0.0.1:4000 next build` | **fails on purpose** — "API_INTERNAL_URL must be set to the public API origin…" |
+| `VERCEL=1 API_INTERNAL_URL=https://example.onrender.com next build` | passes, `/healthz` compiled as a dynamic route |
+| `GET /healthz` with the API up | `200` — `{"ok":true,…,"upstream":{"status":200,"latencyMs":18}}` |
+| `GET /healthz` with the API killed | `503` — `{"ok":false,…,"upstream":{"status":null,"error":"fetch failed"}}` |
+| API down, load `/` and `/login` | both render "This dashboard cannot reach its API" (+ check list, self-check button) — screenshots `artifacts/ui/api-down-{dashboard,login}.png` |
+| API back up, sign in | dashboard loads, `/admin` shows the card `connected` / `200 · 21 ms`, **0 console errors** |
+| `ALLOW_LOCAL_API=1 scripts/deploy-vercel.sh http://127.0.0.1:4000` | rehearsal path passes preflight + build and prints the Vercel settings |
+| `scripts/deploy-vercel.sh http://127.0.0.1:4999` | stops at preflight: "did not answer… deploy the API first" |
+| `scripts/deploy-vercel.sh http://localhost:4000` | stops immediately: local origins cannot be deployed |
+| Suites re-run after the change | unit **54/54**, integration **14/14**, logic probes **40/40**, browser UI **165 checks / 0 failures** |
+
 ### Deliberate behaviours confirmed (not bugs)
 
 - A source with no speech fails with `ANALYSIS_REJECTED`: "Transcription produced no speech

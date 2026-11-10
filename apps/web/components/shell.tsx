@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useLogout, useSession } from '@/lib/hooks';
+import { BackendDown } from './backend-down';
 import { Badge } from './ui';
 
 type NavItem = { href: string; label: string; short: string; icon: string };
@@ -110,6 +111,11 @@ export function Shell({ children }: { children: ReactNode }) {
     );
   }
   if (!session?.authenticated) {
+    // A failed session probe is not "signed out": with no API the login form could never succeed
+    // either, so say what is actually broken.
+    if (sessionQuery.error) {
+      return <BackendDown message={sessionQuery.error.message} onRetry={() => void sessionQuery.refetch()} />;
+    }
     return <div className="grid min-h-[100dvh] place-items-center p-6 text-center text-sm text-ink-soft">Redirecting to sign in…</div>;
   }
 

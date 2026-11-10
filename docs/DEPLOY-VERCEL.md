@@ -46,6 +46,10 @@ Session cookies therefore stay **first-party** — no CORS, no token in localSto
 | `render.yaml` | all four backend services as a Render blueprint, using the existing Dockerfiles |
 | `apps/api/scripts/run-workers.sh` | runs the five worker roles in one container and restarts them as a group |
 | `UPLOAD_PART_SIZE_MIB` (new env var) | chunk size the API advertises to the browser, default 16 MiB |
+| `scripts/deploy-vercel.sh` | one command: validates the API origin, builds locally with it, sets the env var and deploys |
+| `apps/web/app/healthz/route.ts` | **`/healthz`** on the dashboard — reports the baked-in API origin and probes it live (`ok`, upstream status, latency, region, commit) |
+| `apps/web/components/backend-down.tsx` | the screen shown when the API is unreachable, with the three settings to check and a self-check button |
+| `/admin` → “Dashboard → API link” | the same probe inside the app, refreshed every 30 s |
 
 ---
 
@@ -88,6 +92,20 @@ honest minimum for a working pipeline.
 
 ## Step 3 — dashboard on Vercel (5 min)
 
+### Option A — one command
+
+```bash
+cd clipforge-ai
+./scripts/deploy-vercel.sh https://clipforge-api.onrender.com          # preflight, build, then print the steps
+./scripts/deploy-vercel.sh https://clipforge-api.onrender.com --deploy # same, then `vercel --prod`
+```
+
+It refuses a localhost/`http` origin, refuses a dead API (it curls `/api/system/health` first), runs
+a real `next build` with that origin before spending a deploy, and finally prints the two API-side
+variables you still have to set. Without the Vercel CLI it prints the dashboard clicks below instead.
+
+### Option B — Vercel dashboard (no CLI)
+
 1. https://vercel.com/new → import the same repository.
 2. **Root Directory: `apps/web`** ← the one setting people get wrong. Vercel then detects Next.js
    and installs from the repository root automatically.
@@ -103,6 +121,8 @@ honest minimum for a working pipeline.
 5. Copy the deployment URL (e.g. `https://youtube-automation.vercel.app`) and put it into the Render
    API service as `APP_URL` **and** `ALLOWED_ORIGINS`, then redeploy the API. Until you do, the API
    rejects the dashboard's `Origin` header (CSRF/origin checks are strict by design).
+6. Open `https://<your-app>.vercel.app/healthz`. `ok:true` with `upstream.status 200` means the
+   proxy works; `ok:false` names the origin it tried, so the fix is one env var, not a hunt.
 
 ## Step 4 — first run
 
@@ -124,6 +144,24 @@ In the dashboard: login works, **System** shows five live workers, an upload rea
 with 2 clips, the clip downloads over `/media/…` (Range requests supported).
 
 ---
+
+## When the dashboard is live but nothing works
+
+The dashboard now diagnoses this instead of logging you out. Three places say the same thing:
+
+| Where | What it tells you |
+| --- | --- |
+| `https://<app>.vercel.app/healthz` | the API origin baked into the build, whether it answered, how fast, and the Vercel region/commit |
+| the login page / any page | “This dashboard cannot reach its API” with the failed response and a **Run self-check** button — never a login form that cannot succeed |
+| `/admin` → “Dashboard → API link” | the same probe for operators, refreshed every 30 s |
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `/healthz` → `ok:false`, `upstream.error: "fetch failed"` | API down, or `API_INTERNAL_URL` wrong/typo'd | start the API; correct the env var **and redeploy** (it is read at build time) |
+| `/healthz` → 200, but sign-in returns 403 `CSRF_FAILED` | `APP_URL` / `ALLOWED_ORIGINS` on the API do not match the Vercel domain | set both to the exact Vercel origin, restart the API |
+| `/healthz` → 200, sign-in 401 for a correct password | API was bootstrapped with different data, or login rate-limit (10 per 300 s) | check the API logs; wait out the limiter |
+| build fails with “API_INTERNAL_URL must be set to the public API origin” | the env var is missing, or set to `http://localhost:4000` | set the public https origin — the guard exists so a dashboard is never shipped pointing at 127.0.0.1 |
+| images/video break but the UI is fine | `/media` rewrite target wrong, or `STORAGE_DRIVER=local` on the API | use `STORAGE_DRIVER=s3` + `S3_PUBLIC_BASE_URL` on a hosted API |
 
 ## Gotchas that bite in production
 

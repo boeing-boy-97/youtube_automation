@@ -262,7 +262,7 @@ function PublishingToggle({ account }: { account: { id: string; platform: 'YOUTU
       </div>
       <label className="mt-2 flex items-start gap-2 text-xs text-ink-soft">
         <input type="checkbox" className="mt-0.5" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} />
-        I confirm I have the rights to publish these clips and I accept the platform's terms.
+        I confirm I have the rights to publish these clips and I accept the platform&apos;s terms.
       </label>
       {error ? <p className="mt-1 text-xs text-danger">{error}</p> : null}
       <button type="button" className="btn-primary mt-2 !px-3 !py-1.5 text-xs" disabled={!termsAccepted || toggle.isPending} onClick={() => toggle.mutate(true)}>

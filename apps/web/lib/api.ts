@@ -12,9 +12,28 @@ export class ApiError extends Error {
 
 let csrfToken: string | null = null;
 
+/**
+ * A deployed dashboard can fail in ways a local one cannot: the API origin in the build-time
+ * rewrite is wrong, the API is down, or the proxy in front of it returns its own 502/504 page.
+ * Those are infrastructure errors, not "you are logged out", and the UI must say so — otherwise
+ * the user stares at a spinner or a login form that can never succeed.
+ */
+function unreachable(detail: string, status = 0): ApiError {
+  return new ApiError(`The dashboard cannot reach the API. ${detail}`, status, 'BACKEND_UNREACHABLE');
+}
+
+export function isBackendUnreachable(error: unknown): boolean {
+  return error instanceof ApiError && error.code === 'BACKEND_UNREACHABLE';
+}
+
 async function ensureCsrf(): Promise<string> {
   if (csrfToken) return csrfToken;
-  const response = await fetch('/api/auth/csrf', { credentials: 'include' });
+  let response: Response;
+  try {
+    response = await fetch('/api/auth/csrf', { credentials: 'include' });
+  } catch (cause) {
+    throw unreachable((cause as Error)?.message ?? 'The network request failed.');
+  }
   if (!response.ok) throw new ApiError('Unable to obtain a CSRF token', response.status, 'CSRF_FAILED');
   const body = (await response.json()) as { csrfToken: string };
   csrfToken = body.csrfToken;
@@ -31,18 +50,35 @@ export async function api<T>(path: string, options: { method?: string; body?: un
   if (options.body !== undefined) headers['content-type'] = 'application/json';
   if (!['GET', 'HEAD'].includes(method)) headers['x-csrf-token'] = await ensureCsrf();
 
-  const response = await fetch(path, {
-    method,
-    headers,
-    credentials: 'include',
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-    signal: options.signal,
-  });
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method,
+      headers,
+      credentials: 'include',
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: options.signal,
+    });
+  } catch (cause) {
+    if ((cause as Error)?.name === 'AbortError') throw cause;
+    throw unreachable((cause as Error)?.message ?? 'The network request failed.');
+  }
+
+  // A proxy that cannot reach its upstream answers with its own HTML error page. `!response.ok`
+  // plus a non-JSON body is that case, and it is not a validation error from the API.
+  if ([502, 503, 504].includes(response.status)) {
+    throw unreachable(`The API responded through a proxy with HTTP ${response.status}. Check that the API origin is running and publicly reachable.`, response.status);
+  }
 
   const text = await response.text();
   const payload = text ? safeJson(text) : {};
   if (!response.ok) {
     const error = (payload as { error?: { code?: string; message?: string; missingConfiguration?: string[]; details?: unknown } }).error;
+    // A 5xx with no `error` envelope did not come from the API — a rewrite/proxy produced it
+    // (Next answers 500 on ECONNREFUSED, Vercel answers 502/504). Say "unreachable", not "failed".
+    if (!error && response.status >= 500) {
+      throw unreachable(`The API origin did not answer; the proxy returned HTTP ${response.status}.`, response.status);
+    }
     if (response.status === 401) setCsrfToken(null);
     throw new ApiError(
       error?.message ?? `Request failed with HTTP ${response.status}`,
