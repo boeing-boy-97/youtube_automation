@@ -14,7 +14,8 @@ import { downloadUrlToFile } from '../media/ssrf-guard';
 import { StorageService } from '../storage/storage.service';
 import type { RequestContext } from '../common/guards/session-auth.guard';
 
-const PART_SIZE_BYTES = 16 * 1024 * 1024;
+/** Declared to the browser at upload initiation; the browser is not allowed to pick its own. */
+const PART_SIZE_BYTES = env.UPLOAD_PART_SIZE_MIB * 1024 * 1024;
 
 export interface InitiateResult {
   sourceVideoId: string;

@@ -38,6 +38,10 @@ export const envSchema = z.object({
   S3_PUBLIC_BASE_URL: z.string().optional(),
 
   WORK_DIR: z.string().min(1),
+  // Chunk size the browser is told to use. Must be small enough to fit through whatever proxy sits
+  // in front of the API (Vercel proxies function payloads at 4.5 MB; S3/R2 multipart parts must be
+  // at least 5 MiB, so a proxied S3 deployment needs one of the two limits relaxed).
+  UPLOAD_PART_SIZE_MIB: z.coerce.number().int().min(1).max(64).default(16),
   AI_ENGINE_URL: z.string().url(),
   AI_ENGINE_API_KEY: z.string().min(8),
   VIDEO_PROCESSOR_URL: z.string().url(),

@@ -2,14 +2,14 @@
 
 Every file that makes up this project, with its line count and what it does. This is an index, not a copy: the code lives at the path shown. Regenerate with `.venv/bin/python scripts/build-code-map.py` — do not hand-edit.
 
-**144 source files · 21,139 lines · 187 files tracked in git**
+**146 source files · 21,300 lines · 190 files tracked in git**
 
-Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `580c7f0`
+Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `7d85a81`
 
 
 ## API server — `apps/api`
 
-62 source files · 7,550 lines
+62 source files · 7,555 lines
 
 | file | lines | purpose |
 | --- | ---: | --- |
@@ -28,7 +28,7 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `580c7f0`
 | `apps/api/src/clips/clips.service.ts` | 225 | Records an explicit download intent in the audit trail. |
 | `apps/api/src/common/decorators/auth.decorators.ts` | 23 | Marks a route as reachable without a session (login/register/health/callbacks). |
 | `apps/api/src/common/decorators/rate-limit.decorator.ts` | 9 | — |
-| `apps/api/src/common/env.ts` | 102 | Environment parsing with zod. Every value a feature needs is required explicitly; there are no silent fallbacks. Failures are collected so the operato |
+| `apps/api/src/common/env.ts` | 106 | Environment parsing with zod. Every value a feature needs is required explicitly; there are no silent fallbacks. Failures are collected so the operato |
 | `apps/api/src/common/filters/all-exceptions.filter.ts` | 79 | Single error shape for the whole API: { error: { code, message, details?, missingConfiguration?, requestId } } |
 | `apps/api/src/common/guards/csrf.guard.ts` | 50 | Double-submit CSRF protection. The token is delivered in the session-info payload (never in a cookie readable by JS), and must be echoed in the `x-csr |
 | `apps/api/src/common/guards/rate-limit.guard.ts` | 33 | Redis-backed fixed-window limiter. Per-user when authenticated, per-IP otherwise. |
@@ -54,7 +54,7 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `580c7f0`
 | `apps/api/src/queues/queues.module.ts` | 7 | — |
 | `apps/api/src/sources/sources.controller.ts` | 79 | — |
 | `apps/api/src/sources/sources.module.ts` | 15 | — |
-| `apps/api/src/sources/sources.service.ts` | 426 | Local driver only: store one part at its deterministic offset. The part number is authoritative, so retries and out-of-order delivery are harmless. Th |
+| `apps/api/src/sources/sources.service.ts` | 427 | Declared to the browser at upload initiation; the browser is not allowed to pick its own. |
 | `apps/api/src/storage/storage.module.ts` | 6 | — |
 | `apps/api/src/storage/storage.service.ts` | 309 | Object storage abstraction. `STORAGE_DRIVER` is explicit (env). There is no driver fallback: if S3 is selected but misconfigured the API refuses to st |
 | `apps/api/src/system/dashboard.controller.ts` | 16 | — |
@@ -81,7 +81,7 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `580c7f0`
 
 ## Web dashboard — `apps/web`
 
-22 source files · 3,013 lines
+22 source files · 3,028 lines
 
 | file | lines | purpose |
 | --- | ---: | --- |
@@ -107,7 +107,7 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `580c7f0`
 | `apps/web/lib/config-schema.ts` | 61 | Field metadata only — no values. Defaults are deliberately absent: every value must be set explicitly by an operator, matching the API's Configuration |
 | `apps/web/lib/hooks.ts` | 315 | Operator surfaces (system, usage, workspace configuration, brand assets, OAuth accounts) are OWNER/ADMIN only on the API. Pages must ask the same ques |
 | `apps/web/next-env.d.ts` | 6 | — |
-| `apps/web/next.config.ts` | 20 | The browser only ever talks to this Next.js origin. /api and /media are proxied to the NestJS API, so session cookies stay same-origin (no CORS, no to |
+| `apps/web/next.config.ts` | 35 | The browser only ever talks to this Next.js origin. /api and /media are proxied to the NestJS API, so session cookies stay same-origin (no CORS, no to |
 | `apps/web/package.json` | 28 | — |
 | `apps/web/tailwind.config.ts` | 27 | /*.{ts,tsx}', './components/* |
 | `apps/web/tsconfig.json` | 10 | — |
@@ -201,13 +201,15 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `580c7f0`
 
 ## Developer scripts — `scripts`
 
-2 source files · 201 lines
+4 source files · 342 lines
 
 | file | lines | purpose |
 | --- | ---: | --- |
 | `scripts/README.md` | 18 | scripts/ |
 | `scripts/build-code-bundle.py` | 108 | Build a single self-contained HTML file containing every source file of the project. The platform's file viewer renders one file at a time, so "where  |
 | `scripts/build-code-map.py` | 93 | Regenerate docs/CODE-MAP.md: every tracked file with its line count and purpose. Kept as a script rather than hand-written so the map cannot drift fro |
+| `scripts/check-api-keys.sh` | 56 | !/usr/bin/env bash |
+| `scripts/dev-up.sh` | 85 | !/usr/bin/env bash |
 
 ## Infrastructure & deployment
 
@@ -215,7 +217,7 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `580c7f0`
 
 | file | lines | purpose |
 | --- | ---: | --- |
-| `README.md` | 100 | ClipForge AI |
+| `README.md` | 104 | ClipForge AI |
 | `docker-compose.dev.yml` | 178 | Development stack: every service hot-reloads or runs from source, storage is local. |
 | `docker-compose.prod.yml` | 218 | Production stack: built images, Caddy TLS front door, scheduled PostgreSQL backups. |
 | `infrastructure/README.md` | 17 | `infrastructure/` |
@@ -239,6 +241,7 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `580c7f0`
 
 | file | lines | purpose |
 | --- | ---: | --- |
+| `docs/ADD-API-KEYS.md` | 88 | Adding the API keys later (plain language) |
 | `docs/AI-PIPELINE.md` | 93 | AI pipeline |
 | `docs/ARCHITECTURE.md` | 87 | Architecture |
 | `docs/CONFIGURATION.md` | 79 | Configuration |

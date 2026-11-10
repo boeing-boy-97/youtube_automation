@@ -84,6 +84,10 @@ Or run the whole stack in containers: `docker compose -f docker-compose.dev.yml 
 | End-to-end workflow (single journey) | `.venv/bin/python tests/e2e/full_workflow.py <video>` | PASSED |
 | Service smoke test | `bash infrastructure/scripts/healthcheck.sh` | all healthy |
 
+Deployment: `docs/DEPLOY-VERCEL.md` — the dashboard runs on Vercel; the API, the five workers and
+both Python services run as containers (Render blueprint included), because serverless functions
+cannot host queue consumers or FFmpeg.
+
 `docs/VERIFICATION.md` records exactly what was executed, what passed, what is blocked on
 third-party credentials, and the known limitations.
 
