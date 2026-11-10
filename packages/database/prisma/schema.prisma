@@ -190,8 +190,14 @@ enum HealthSeverity {
 model User {
   id            String     @id @default(uuid()) @db.Uuid
   email         String     @unique
-  passwordHash  String
+  // Null for accounts that only ever sign in with Google/Firebase: a password is not a
+  // requirement for identity, and storing a fake hash would be a lie in the audit trail.
+  passwordHash  String?
   displayName   String
+  // Firebase Authentication linkage. Null for password-only accounts. Unique so a Firebase
+  // identity can never be claimed by two rows.
+  firebaseUid   String?    @unique
+  avatarUrl     String?
   role          UserRole   @default(OWNER)
   status        UserStatus @default(ACTIVE)
   emailVerified Boolean    @default(false)

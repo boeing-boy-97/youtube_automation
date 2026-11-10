@@ -39,6 +39,12 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(200),
 });
 
+export const firebaseLoginSchema = z.object({
+  // A Firebase ID token is a JWT; the server verifies signature, audience and expiry. The length
+  // bound is only there to reject obvious garbage before it reaches the verifier.
+  idToken: z.string().min(64).max(8192),
+});
+
 // -------------------------------- sources ---------------------------------
 
 export const SUPPORTED_VIDEO_MIME = [

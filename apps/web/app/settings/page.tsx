@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { useConfiguration, useIsOperator, useSaveConfiguration, useSystemOverview } from '@/lib/hooks';
+import { useConfiguration, useIsOperator, useSaveConfiguration, useSession, useSystemOverview } from '@/lib/hooks';
 import { CONFIG_FIELDS, CONFIG_GROUPS, type ConfigField } from '@/lib/config-schema';
 import { Badge, Card, CardHeader, ErrorState, Field, Section, Skeleton, StatusBadge, Toast } from '@/components/ui';
 
@@ -29,6 +29,7 @@ function parseValue(field: ConfigField, raw: string | boolean): unknown {
 
 export default function SettingsPage() {
   const configuration = useConfiguration();
+  const session = useSession();
   // Configuration writes are OWNER/ADMIN only on the API; members get a read-only view instead of
   // a form whose save button can only produce a 403.
   const isOperator = useIsOperator();
@@ -232,6 +233,38 @@ export default function SettingsPage() {
           ) : null}
         </Card>
       ))}
+
+      <Section title="Your account" description="Identity is verified by the API on every request; sign-in methods are read-only here">
+        <Card>
+          <div className="flex flex-wrap items-center gap-3 px-5 py-4">
+            {session.data?.user?.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- external Google avatar, no layout shift to optimise
+              <img src={session.data.user.avatarUrl} alt="" className="h-10 w-10 rounded-full border border-line object-cover" referrerPolicy="no-referrer" />
+            ) : (
+              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-ink text-[13px] font-semibold text-white">
+                {(session.data?.user?.displayName ?? '?').slice(0, 1).toUpperCase()}
+              </span>
+            )}
+            <div className="min-w-0">
+              <p className="truncate text-[14px] font-medium text-ink">{session.data?.user?.displayName}</p>
+              <p className="truncate text-[12.5px] text-ink-soft">{session.data?.user?.email}</p>
+            </div>
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              {(session.data?.user?.authMethods?.length ? session.data.user.authMethods : ['PASSWORD']).map((method) => (
+                <StatusBadge key={method} value={method === 'GOOGLE' ? 'CONNECTED' : 'ACTIVE'} />
+              ))}
+              <span className="text-[11.5px] text-ink-faint">
+                {(session.data?.user?.authMethods ?? ['PASSWORD']).includes('GOOGLE') ? 'Google linked' : 'Google not linked'}
+              </span>
+            </div>
+          </div>
+          <p className="border-t border-line px-5 py-3 text-[12px] leading-relaxed text-ink-soft">
+            To link Google, sign out and choose <strong>Continue with Google</strong> using this same
+            email address — the API links the identities and your password keeps working. To unlink,
+            an operator clears <code className="rounded bg-surface-sunken px-1">firebaseUid</code> on this row.
+          </p>
+        </Card>
+      </Section>
 
       <Section title="Session & security" description="Applied by the API, not configurable from the browser">
         <Card>

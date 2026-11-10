@@ -43,6 +43,25 @@ services:
         generateValue: true
       - key: ALLOW_SELF_REGISTRATION
         value: false
+      # --- Firebase Auth (optional: leave blank for password-only login) ---
+      # docs/FIREBASE-AUTH.md steps 5-9. The three service-account fields must all be set or all be
+      # blank; the API refuses to boot on a half-configured verifier.
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY # keep the \n escapes; use FIREBASE_SERVICE_ACCOUNT_JSON instead if your panel mangles it
+        sync: false
+      - key: FIREBASE_WEB_API_KEY
+        sync: false
+      - key: FIREBASE_WEB_AUTH_DOMAIN
+        sync: false
+      - key: FIREBASE_WEB_APP_ID
+        sync: false
+      - key: FIREBASE_ALLOW_NEW_USERS
+        value: false
+      - key: FIREBASE_REQUIRE_VERIFIED_EMAIL
+        value: true
       - key: STORAGE_DRIVER
         value: s3 # local disk does not survive a deploy
       - key: S3_ENDPOINT # Cloudflare R2: https://<account>.r2.cloudflarestorage.com

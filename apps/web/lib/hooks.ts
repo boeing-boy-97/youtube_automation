@@ -10,11 +10,22 @@ export interface ComponentHealth {
   latencyMs?: number;
 }
 
+export interface SignInProviders {
+  password: boolean;
+  selfRegistrationEnabled: boolean;
+  firebase: {
+    enabled: boolean;
+    config: { apiKey: string; authDomain: string; projectId: string; appId: string | null } | null;
+    allowNewUsers: boolean;
+    error: string | null;
+  };
+}
+
 export interface SessionResponse {
   authenticated: boolean;
   selfRegistrationEnabled?: boolean;
   csrfToken?: string;
-  user?: { id: string; email: string; displayName: string; role: string };
+  user?: { id: string; email: string; displayName: string; role: string; avatarUrl?: string | null; authMethods?: string[] };
   workspace?: { id: string; name: string; slug: string; timezone: string | null };
   configuration?: { processingReady: boolean; publishingReady: boolean; missing: string[] };
   integrations?: Record<string, boolean>;
@@ -30,6 +41,28 @@ export function useSession() {
     },
     retry: false,
     refetchOnWindowFocus: false,
+  });
+}
+
+/** Which sign-in methods the deployment offers. Public, cached, never retried aggressively. */
+export function useSignInProviders() {
+  return useQuery({
+    queryKey: ['sign-in-providers'],
+    queryFn: () => api<SignInProviders>('/api/auth/providers'),
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+}
+
+/** Exchanges a Firebase ID token for the same httpOnly session a password login produces. */
+export function useFirebaseLogin() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { idToken: string }) => api<{ csrfToken: string }>('/api/auth/firebase', { method: 'POST', body: input }),
+    onSuccess: async (data) => {
+      setCsrfToken(data.csrfToken);
+      await client.invalidateQueries({ queryKey: ['session'] });
+    },
   });
 }
 

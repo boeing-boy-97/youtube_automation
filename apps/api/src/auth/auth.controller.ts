@@ -1,12 +1,13 @@
 import { Body, Controller, ForbiddenException, Get, Post, Req, Res } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
-import { bootstrapSchema, loginSchema, registerSchema } from '@clipforge/validation';
+import { bootstrapSchema, firebaseLoginSchema, loginSchema, registerSchema } from '@clipforge/validation';
 import { CurrentContext, Public, SkipCsrf } from '../common/decorators/auth.decorators';
 import type { RequestContext } from '../common/guards/session-auth.guard';
 import { RateLimit } from '../common/decorators/rate-limit.decorator';
 import { env } from '../common/env';
 import { AuthService } from './auth.service';
+import { FirebaseService } from './firebase.service';
 import { SessionService } from './session.service';
 
 @ApiTags('auth')
@@ -15,6 +16,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly sessions: SessionService,
+    private readonly firebase: FirebaseService,
   ) {}
 
   private setSessionCookies(res: Response, rawToken: string): void {
@@ -41,6 +43,37 @@ export class AuthController {
       maxAge: 60 * 60_000,
     });
     return { csrfToken: token };
+  }
+
+  @Get('providers')
+  @Public()
+  @SkipCsrf()
+  @ApiOperation({ summary: 'Which sign-in methods this deployment offers (drives the login screen)' })
+  providers() {
+    const firebaseConfigured = this.firebase.configured;
+    return {
+      password: true,
+      selfRegistrationEnabled: env.ALLOW_SELF_REGISTRATION,
+      firebase: {
+        enabled: firebaseConfigured,
+        // Public by design: the same values ship in every Firebase web app's JS bundle.
+        config: firebaseConfigured ? this.firebase.webConfig() : null,
+        allowNewUsers: env.FIREBASE_ALLOW_NEW_USERS,
+        error: firebaseConfigured ? null : this.firebase.configurationError,
+      },
+    };
+  }
+
+  @Post('firebase')
+  @Public()
+  @SkipCsrf()
+  @RateLimit({ limit: 10, windowSeconds: 300, scope: 'auth-firebase' })
+  @ApiOperation({ summary: 'Exchange a Firebase ID token for a ClipForge session (Google sign-in)' })
+  async firebaseLogin(@Body() body: unknown, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const { idToken } = firebaseLoginSchema.parse(body);
+    const result = await this.auth.loginWithFirebase(idToken, req);
+    this.setSessionCookies(res, result.rawToken);
+    return { csrfToken: result.csrfToken, userId: result.userId, workspaceId: result.workspaceId };
   }
 
   @Post('bootstrap')

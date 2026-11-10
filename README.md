@@ -88,6 +88,7 @@ Or run the whole stack in containers: `docker compose -f docker-compose.dev.yml 
 | Logic probes (adversarial) | `.venv/bin/python tests/e2e/logic_probes.py` | 40/40 |
 | End-to-end workflow (single journey) | `.venv/bin/python tests/e2e/full_workflow.py <video>` | PASSED |
 | Browser UI audit (5 viewports × 10 routes) | `python3 tests/e2e/ui_responsive.py` | 165 checks, 0 failures |
+| Google sign-in contract + login screen | `python3 tests/e2e/firebase_auth.py` | 16 checks, 0 failures |
 | Service smoke test | `bash infrastructure/scripts/healthcheck.sh` | all healthy |
 
 `npm audit` findings and their triage live in `docs/SECURITY-NOTES.md`; nothing is silently accepted.
@@ -99,6 +100,8 @@ cannot host queue consumers or FFmpeg. Ship the dashboard with:
 ```bash
 ./scripts/deploy-vercel.sh https://your-api-host        # preflight + exact Vercel settings
 ```
+
+Google sign-in is one env block away (`docs/FIREBASE-AUTH.md`) and never replaces the password path.
 
 A deployed dashboard never hides a broken backend: `https://<app>/healthz` reports the API origin it
 was built against and probes it, `/admin` shows the same link, and with the API unreachable the app
@@ -113,6 +116,7 @@ screens — and that is enforced by the browser audit rather than by review.
 
 | Integration | Code | Live verification |
 | --- | --- | --- |
+| Firebase Auth (Google sign-in) | implemented | **awaiting a Firebase project** — password login works without it; see `docs/FIREBASE-AUTH.md` |
 | Gemini (analysis + metadata) | implemented | **awaiting credentials** — runs use the deterministic fixture provider with `TEST_MODE=1` |
 | YouTube Data API v3 | implemented | **awaiting credentials** |
 | Instagram Graph API (v27.0) | implemented | **awaiting credentials** |

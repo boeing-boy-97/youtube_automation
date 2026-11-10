@@ -116,6 +116,10 @@ variables you still have to set. Without the Vercel CLI it prints the dashboard 
    | `API_INTERNAL_URL` | `https://clipforge-api.onrender.com` | **build time** — baked into the `/api` and `/media` rewrites |
    | `NEXT_PUBLIC_APP_NAME` | `ClipForge AI` (optional) | build + runtime |
 
+   Firebase needs **nothing** on Vercel: the login page asks the API for the public web config at
+   runtime (`GET /api/auth/providers`). Put the `FIREBASE_*` service-account values on the API
+   instead — `docs/FIREBASE-AUTH.md` steps 5–9.
+
 4. Deploy. The build fails on purpose if `API_INTERNAL_URL` is missing or points at localhost —
    that is the guard doing its job.
 5. Copy the deployment URL (e.g. `https://youtube-automation.vercel.app`) and put it into the Render

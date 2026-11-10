@@ -47,6 +47,21 @@ export const envSchema = z.object({
   VIDEO_PROCESSOR_URL: z.string().url(),
   VIDEO_PROCESSOR_API_KEY: z.string().min(8),
 
+  // ---------------------------- Firebase Auth ----------------------------
+  // Optional: when absent, email+password keeps working and the dashboard hides Google sign-in.
+  // Server-side verification needs a service account; the web config below is public by design.
+  FIREBASE_PROJECT_ID: z.string().optional(),
+  FIREBASE_CLIENT_EMAIL: z.string().optional(),
+  FIREBASE_PRIVATE_KEY: z.string().optional(),
+  FIREBASE_SERVICE_ACCOUNT_JSON: z.string().optional(),
+  FIREBASE_WEB_API_KEY: z.string().optional(),
+  FIREBASE_WEB_AUTH_DOMAIN: z.string().optional(),
+  FIREBASE_WEB_APP_ID: z.string().optional(),
+  // An identity provider proves *who* you are; it does not prove you may use this deployment.
+  // Default closed: a Google account must already exist in ClipForge unless an operator opts in.
+  FIREBASE_ALLOW_NEW_USERS: bool.default('false'),
+  FIREBASE_REQUIRE_VERIFIED_EMAIL: bool.default('true'),
+
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_TEXT_MODEL: z.string().optional(),
   GEMINI_VISION_MODEL: z.string().optional(),
@@ -94,11 +109,24 @@ export function loadEnv(): AppEnv {
   if (env.STORAGE_DRIVER === 'local' && (!env.STORAGE_LOCAL_ROOT || !env.STORAGE_LOCAL_PUBLIC_BASE_URL)) {
     throw new Error('STORAGE_DRIVER=local requires STORAGE_LOCAL_ROOT and STORAGE_LOCAL_PUBLIC_BASE_URL');
   }
+  const firebaseServer = ['FIREBASE_PROJECT_ID', 'FIREBASE_CLIENT_EMAIL', 'FIREBASE_PRIVATE_KEY'] as const;
+  const firebasePresent = firebaseServer.filter((key) => Boolean(env[key]));
+  if (firebasePresent.length > 0 && firebasePresent.length < firebaseServer.length && !env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    throw new Error(
+      `Firebase Auth is half-configured (${firebasePresent.join(', ')} set). Provide all three of ` +
+        'FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY, or FIREBASE_SERVICE_ACCOUNT_JSON, or none.',
+    );
+  }
   if (env.STORAGE_DRIVER === 's3' && (!env.S3_BUCKET || !env.S3_ACCESS_KEY_ID || !env.S3_SECRET_ACCESS_KEY || !env.S3_REGION)) {
     throw new Error('STORAGE_DRIVER=s3 requires S3_BUCKET, S3_REGION, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY');
   }
   cached = env;
   return env;
+}
+
+/** Test-only: drop the cached value so a test can exercise a different configuration. */
+export function resetEnvCache(): void {
+  cached = null;
 }
 
 export const env = new Proxy({} as AppEnv, {

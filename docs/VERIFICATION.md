@@ -326,6 +326,46 @@ Verified in this sandbox:
 | `scripts/deploy-vercel.sh http://localhost:4000` | stops immediately: local origins cannot be deployed |
 | Suites re-run after the change | unit **54/54**, integration **14/14**, logic probes **40/40**, browser UI **165 checks / 0 failures** |
 
+### Firebase Auth / Google sign-in (2026-11-09)
+
+Added alongside the existing password login — never instead of it. Gate chosen because Firebase is
+an identity provider, not a database: Postgres/Prisma remains the source of truth (jobs, leases,
+outbox, audit), and the two new columns (`firebaseUid`, `avatarUrl`) plus a nullable `passwordHash`
+are the entire schema change.
+
+| Piece | Where | What it does |
+| --- | --- | --- |
+| `FirebaseService` | `apps/api/src/auth/auth.service.ts` + `firebase.service.ts` | verifies ID tokens with a service account, `checkRevoked: true`; absent config = disabled, **not** broken |
+| `POST /api/auth/firebase` | `auth.controller.ts` | token → user → the same httpOnly session cookie a password login issues; rate limited 10/300 s |
+| `GET /api/auth/providers` | `auth.controller.ts` | tells the login screen what exists; serves the **public** web config so Vercel needs no Firebase env |
+| `resolveFirebaseUser` | `auth.service.ts` | linking/refusal rules, separated from verification so they are testable |
+| Login screen | `apps/web/app/login/page.tsx`, `components/google-button.tsx`, `lib/firebase-client.ts` | split-panel layout, Google button that is disabled-with-reason until configured, per-field validation, mapped error copy; SDK loaded on demand |
+| Account card | `apps/web/app/settings/page.tsx` | shows the signed-in identity, linked methods and how to link/unlink |
+| Guide | `docs/FIREBASE-AUTH.md` | 9 numbered steps with exact console clicks, env block, troubleshooting table, rollback |
+
+Verified in this sandbox (no Firebase project exists here, so the *disabled* and *misconfigured*
+paths are what can be proven end to end — those are the ones that break silently):
+
+| Check | Result |
+| --- | --- |
+| `GET /api/auth/providers` | `{"password":true,…,"firebase":{"enabled":false,"config":null,"error":null}}` — password honoured, Google honestly absent |
+| `POST /api/auth/firebase` with an unverifiable token | `503 FIREBASE_NOT_CONFIGURED` (never a 500), message names the three env vars |
+| `POST /api/auth/firebase` with a 5-char body | `400 VALIDATION_FAILED` before any verifier runs |
+| Half-configured service account | API **refuses to boot**: "Firebase Auth is half-configured (FIREBASE_PROJECT_ID set)…" |
+| Password login on a Google-only account (`passwordHash` null) | generic `401 UNAUTHENTICATED`, no 500, no account disclosure |
+| Unit (`tests/unit/firebase-config.test.ts`) | 4 cases: disabled-is-not-broken, half-config throws, public config carries no private key, unconfigured verify → 503 |
+| Integration (`tests/integration/firebase-auth.test.ts`, real DB) | **8 cases**: unknown account refused, first sign-in links to the password account (hash untouched), idempotent re-sign-in, second Google account on a linked email refused, suspended account refused, unverified email refused, email-less identity refused, provisioning creates user + workspace + OWNER membership |
+| E2E (`tests/e2e/firebase_auth.py`) | **16 checks**: providers contract, token refusal, validation, session `authMethods`, Google button rendered-but-disabled with a reason, inline email validation, password sign-in still reaches the dashboard with 0 console errors, and — with an intercepted providers response — the button becomes live, the Firebase SDK loads **on demand** and its failure surfaces as "The Firebase web API key is wrong…" |
+| Screens | `artifacts/ui/login-final-{desktop,mobile}.png`, `login-google-enabled.png`, `settings-account.png` |
+| Layout | no horizontal overflow at 390/1440 (`scrollX=0`), first-run setup reachable on both |
+
+Full re-run after the change: unit **58/58**, integration **22/22**, browser UI audit **165 checks /
+0 failures**, `eslint .` clean, `next build` clean, `tsc` clean in all workspaces.
+
+Still requires the user's Firebase project: steps 1–9 of `docs/FIREBASE-AUTH.md`. Nothing below can
+be verified without real credentials — a real Google account signing in, and Firebase's own
+`auth/unauthorized-domain` behaviour on the deployed domain.
+
 ### Deliberate behaviours confirmed (not bugs)
 
 - A source with no speech fails with `ANALYSIS_REJECTED`: "Transcription produced no speech
