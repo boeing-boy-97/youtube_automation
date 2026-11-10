@@ -43,13 +43,13 @@ Session cookies therefore stay **first-party** — no CORS, no token in localSto
 | --- | --- |
 | `apps/web/vercel.json` | pins the framework, region `bom1` (Mumbai), and security headers |
 | `apps/web/next.config.ts` | resolves the API origin for the `/api` + `/media` rewrites (build time), from `API_INTERNAL_URL` → `apps/web/api-target.json` → local default. A hosted build with neither is still produced, against an unresolvable sentinel, so the deployment succeeds and says what is missing instead of failing the build |
-| `apps/web/api-target.json` | the same origin, committed to git — for anyone who would rather edit a file than a dashboard setting |
+| `apps/web/api-target.json` | the same origin, committed to git — for anyone who would rather edit a file than a dashboard setting. **Ships empty on purpose:** it must hold *your* API's URL, never a guessed one |
 | `render.yaml` | **free** backend blueprint: Render Postgres + Key Value + the API, self-contained, one click |
 | `render.pipeline.yaml` | the full paid stack (workers, transcription, rendering) — rename to `render.yaml` when you need it |
 | `apps/api/scripts/run-workers.sh` | runs the five worker roles in one container and restarts them as a group |
 | `UPLOAD_PART_SIZE_MIB` (new env var) | chunk size the API advertises to the browser, default 16 MiB |
 | `scripts/deploy-vercel.sh` | one command: validates the API origin, builds locally with it, sets the env var and deploys |
-| `apps/web/app/healthz/route.ts` | **`/healthz`** on the dashboard — reports the baked-in API origin and probes it live (`ok`, upstream status, latency, region, commit) |
+| `apps/web/app/healthz/route.ts` | **`/healthz`** on the dashboard — reports the baked-in API origin, probes it live (`ok`, upstream status, latency, region, commit) and identifies *who answered*: `identity: "clipforge"` vs `"other"` |
 | `apps/web/components/backend-down.tsx` | the screen shown when the API is unreachable, with the three settings to check and a self-check button |
 | `/admin` → “Dashboard → API link” | the same probe inside the app, refreshed every 30 s |
 
@@ -65,6 +65,30 @@ A value pasted with a trailing slash or a `/api` suffix is normalised (that mist
 rewrite to `/api/api/…`). A hosted build with no origin at all is still produced — against
 `https://api-not-configured.invalid` — so the deploy succeeds, every call fails fast, and the UI says
 so. Changing the origin always needs a **redeploy**, because it is compiled into the rewrites.
+
+### "It answered, but it is not your API"
+
+A live URL that is not yours is the most misleading failure: the fetch succeeds, so nothing looks
+*down*, and every route returns `404`. Render service names are **global** — if `clipforge-api` is
+already taken, Render names yours `clipforge-api-xxxx.onrender.com` and your dashboard keeps talking
+to the stranger.
+
+`/healthz` now separates the two:
+
+| `identity` | `upstream.status` | means |
+| --- | --- | --- |
+| `clipforge` | 200 | correct origin, correct API |
+| `other` | 404 | that host is not ClipForge — copy the URL from **your** Render service page |
+| `unknown` | `null` | nothing answered (wrong host, or a free instance waking up — allow ~30 s) |
+
+Check the body, not only the status:
+
+```bash
+curl -s https://<your-api-host>/api/system/health
+# {"status":"ok","uptimeSeconds":…,"version":"1.0.0","checks":[{"component":"postgres",…}]}
+```
+
+Anything else — a different JSON shape, an HTML page, `Cannot GET` — is somebody else's service.
 
 ---
 

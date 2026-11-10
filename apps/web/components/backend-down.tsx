@@ -20,14 +20,17 @@ export function BackendDown({ message, onRetry }: { message: string; onRetry?: (
       const body = (await response.json()) as {
         ok?: boolean;
         apiTarget?: string | null;
+        identity?: 'clipforge' | 'other' | 'unknown';
+        hint?: string;
         upstream?: { status: number | null; latencyMs: number | null; error?: string | null };
       };
       const upstream = body.upstream ?? { status: null, latencyMs: null };
-      setReport(
-        body.ok
-          ? `API origin ${body.apiTarget} answered ${upstream.status} in ${upstream.latencyMs} ms. The proxy works — try signing in again.`
-          : `API origin ${body.apiTarget ?? '(not set)'} failed${upstream.error ? `: ${upstream.error}` : ` with status ${upstream.status ?? 'none'}`}.`,
-      );
+      const verdict = body.ok
+        ? `API origin ${body.apiTarget} answered ${upstream.status} in ${upstream.latencyMs} ms — the proxy works, try signing in again.`
+        : body.identity === 'other'
+          ? `API origin ${body.apiTarget ?? '(not set)'} answered ${upstream.status}, but it is not a ClipForge API.`
+          : `API origin ${body.apiTarget ?? '(not set)'} failed${upstream.error ? `: ${upstream.error}` : ` with status ${upstream.status ?? 'none'}`}.`;
+      setReport(body.hint ? `${verdict} ${body.hint}` : verdict);
     } catch (error) {
       setReport(`Self-check could not run: ${(error as Error).message}`);
     } finally {
@@ -60,7 +63,9 @@ export function BackendDown({ message, onRetry }: { message: string; onRetry?: (
             <ol className="list-decimal space-y-1 pl-5">
               <li>
                 The API is running and <code className="rounded bg-surface-sunken px-1">GET /api/system/health</code> returns
-                200 on its own public URL.
+                200 on its own public URL — check the body, not just the status. Anything other than
+                ClipForge&apos;s own JSON means that URL belongs to another service (Render names are global, so a
+                taken name gets a suffix).
               </li>
               <li>
                 <code className="rounded bg-surface-sunken px-1">API_INTERNAL_URL</code> in Vercel is that exact origin

@@ -377,6 +377,23 @@ API existed. Making that path short was the work:
 | `apps/web/api-target.json` prefilled with `https://clipforge-api.onrender.com` | the dashboard picks up the API by editing one committed line instead of hunting Vercel settings |
 | `api-target.json` is consulted **only for hosted builds** | local `npm run dev` keeps talking to the local API instead of silently proxying production |
 
+### A live origin that is not your API (2026-11-09)
+
+`apps/web/api-target.json` was shipped prefilled with `https://clipforge-api.onrender.com`. That host
+answers — it is somebody else's service (`/api/system/health` → 404, `/api/docs` → "Atomiser API
+Documentation") — so the dashboard looked *reachable* and 404'd on every route. Two changes:
+
+| Change | Why |
+| --- | --- |
+| `api-target.json` ships `apiOrigin: null` again | a guessed origin is worse than none: it hid the failure |
+| `/healthz` reports `identity: "clipforge" \| "other" \| "unknown"` by checking the API's own `checks` body | a 404 from a live host is indistinguishable from "down" without identifying who answered |
+| `backend-down.tsx` prints that verdict and the hint | the screen now says "that host is not a ClipForge API" instead of "failed with status 404" |
+| docs: Render names are global, a taken name gets a suffix | the actual cause of the wrong URL |
+
+Verified against the real hosts: wrong origin → `ok:false, identity:"other", upstream.status:404` with
+the suffix hint; correct local origin → `ok:true, identity:"clipforge"`; no origin → sentinel +
+"no API origin was configured". Screenshot: `artifacts/ui/vercel-wrong-origin-diagnosed.png`.
+
 Verified locally: `render.yaml` and `render.pipeline.yaml` parse; with `VERCEL=1` and no env var the
 build reads `api-target.json` and inlines `https://clipforge-api.onrender.com` into
 `CLIPFORGE_API_TARGET`; a local build ignores the file and inlines `http://127.0.0.1:4000`; the local
