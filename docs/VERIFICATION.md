@@ -364,6 +364,24 @@ paths are what can be proven end to end — those are the ones that break silent
 Full re-run after the change: unit **58/58**, integration **22/22**, browser UI audit **165 checks /
 0 failures**, `eslint .` clean, `next build` clean, `tsc` clean in all workspaces.
 
+### Deploying the backend for a live dashboard (2026-11-09)
+
+The deployed dashboard was working exactly as designed — honest "cannot reach its API" — because no
+API existed. Making that path short was the work:
+
+| Change | Why |
+| --- | --- |
+| `render.yaml` rewritten as a self-contained **free** stack: `clipforge-db` (Render Postgres) + `clipforge-redis` (Key Value) + `clipforge-api`, all wired via `fromDatabase` / `fromService` | removes the Neon + Upstash + R2 sign-ups that stood between "deployed" and "usable" |
+| previous full stack preserved as `render.pipeline.yaml` | the paid path (workers, transcription, rendering) is still one rename away |
+| `RUN_MIGRATIONS=1` on the API service | the image runs `prisma migrate deploy` on start, so a fresh Render database is usable without a shell |
+| `apps/web/api-target.json` prefilled with `https://clipforge-api.onrender.com` | the dashboard picks up the API by editing one committed line instead of hunting Vercel settings |
+| `api-target.json` is consulted **only for hosted builds** | local `npm run dev` keeps talking to the local API instead of silently proxying production |
+
+Verified locally: `render.yaml` and `render.pipeline.yaml` parse; with `VERCEL=1` and no env var the
+build reads `api-target.json` and inlines `https://clipforge-api.onrender.com` into
+`CLIPFORGE_API_TARGET`; a local build ignores the file and inlines `http://127.0.0.1:4000`; the local
+stack still passes UI **165/0** and `firebase_auth` **18/18**.
+
 ### Firebase: wiring a real project (an existing Firebase project) — 2026-11-09
 
 The web config alone does **not** make Google sign-in work: the browser can obtain an ID token, but

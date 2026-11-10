@@ -44,7 +44,8 @@ Session cookies therefore stay **first-party** — no CORS, no token in localSto
 | `apps/web/vercel.json` | pins the framework, region `bom1` (Mumbai), and security headers |
 | `apps/web/next.config.ts` | resolves the API origin for the `/api` + `/media` rewrites (build time), from `API_INTERNAL_URL` → `apps/web/api-target.json` → local default. A hosted build with neither is still produced, against an unresolvable sentinel, so the deployment succeeds and says what is missing instead of failing the build |
 | `apps/web/api-target.json` | the same origin, committed to git — for anyone who would rather edit a file than a dashboard setting |
-| `render.yaml` | all four backend services as a Render blueprint, using the existing Dockerfiles |
+| `render.yaml` | **free** backend blueprint: Render Postgres + Key Value + the API, self-contained, one click |
+| `render.pipeline.yaml` | the full paid stack (workers, transcription, rendering) — rename to `render.yaml` when you need it |
 | `apps/api/scripts/run-workers.sh` | runs the five worker roles in one container and restarts them as a group |
 | `UPLOAD_PART_SIZE_MIB` (new env var) | chunk size the API advertises to the browser, default 16 MiB |
 | `scripts/deploy-vercel.sh` | one command: validates the API origin, builds locally with it, sets the env var and deploys |
@@ -84,37 +85,49 @@ cd clipforge-ai
 DATABASE_URL='postgresql://…neon…?sslmode=require' npm run db:deploy
 ```
 
-## Step 2 — backend on Render (15 min)
+## Step 2 — backend on Render (10 min, one account, $0)
 
-1. Push this repository to GitHub (SSH key already configured).
-2. https://dashboard.render.com → **New → Blueprint** → pick the repo. Render reads `render.yaml`
-   and offers four services.
-3. Fill the `sync: false` values:
-   `AI_ENGINE_API_KEY` and `VIDEO_PROCESSOR_API_KEY` (generate with `openssl rand -hex 24`),
-   `S3_*`, `GEMINI_API_KEY`, and `APP_URL` / `ALLOWED_ORIGINS` (you can put the Vercel URL here
-   after step 3, then redeploy the API).
-4. Apply. Wait for `clipforge-api`, `clipforge-ai-engine` and `clipforge-video-processor` to report
-   healthy, and for `clipforge-workers` to log `started pipeline worker …` five times.
-5. Note the API URL, e.g. `https://clipforge-api.onrender.com`. Check it:
+The repository's default `render.yaml` is self-contained: it creates the Postgres database, the
+Redis (Key Value) instance **and** the API, wired to each other. There is nothing to paste and no
+Neon/Upstash/R2 sign-up.
+
+1. Open **https://dashboard.render.com** → **New → Blueprint**.
+2. Pick the `youtube_automation` repository → **Apply**.
+   Render creates `clipforge-db`, `clipforge-redis` and `clipforge-api`.
+3. Wait for `clipforge-api` to turn **Live** (first build ≈ 5–8 min; it applies the Prisma
+   migrations on start). Copy its URL — normally `https://clipforge-api.onrender.com`.
+4. Check it answers:
    ```bash
    curl -s https://clipforge-api.onrender.com/api/system/health
    ```
+   Free instances sleep after 15 minutes, so the very first call can take ~30 s. A `200` after that
+   is what you want.
 
-### What "backend deployed" costs, honestly
+**Point the dashboard at it (one line, no Vercel settings needed):**
 
-| Goal | What you need | Monthly |
-| --- | --- | --- |
-| Build goes green, dashboard loads, sign-in works | API only (`clipforge-api`) + free Neon + free Upstash | $0 (instance sleeps; first request ~30 s) |
-| Upload → transcript → clip → download actually runs | + `clipforge-workers`, `clipforge-ai-engine`, `clipforge-video-processor` | ~$7–21 depending on instance sizes |
-| Media survives a redeploy | + Cloudflare R2 (`STORAGE_DRIVER=s3`) | ~$0 at demo volume |
+5. On GitHub open `apps/web/api-target.json` → pencil → set
+   ```json
+   { "apiOrigin": "https://clipforge-api.onrender.com" }
+   ```
+   → **Commit changes**. Vercel rebuilds automatically. (Already prefilled with that URL — edit only
+   if Render gave your service a different name. `API_INTERNAL_URL` in Vercel, if you ever set it,
+   wins over this file.)
+6. Open `https://<your-app>.vercel.app/healthz` → `ok:true`, `upstream.status: 200`.
 
-Without the workers the pipeline stalls at `QUEUED` by design — the API does not fake progress. For a
-first demo you can run `STORAGE_DRIVER=local` with `WORK_DIR=/tmp/clipforge`, understanding that
-uploads disappear on the next deploy.
+### First sign-in
 
-**Note on plans:** Render's free instance type sleeps after 15 minutes and does not include
-background workers. `starter` for the API/workers and `standard` for the two Python services is the
-honest minimum for a working pipeline.
+1. Open the dashboard → **First-run setup**.
+2. On Render open `clipforge-api` → **Environment** → copy `ADMIN_BOOTSTRAP_TOKEN`.
+3. Paste it with your email / password / workspace name → **Create administrator**.
+4. You are in. `/admin` shows what is and is not running: on this free stack the API, Postgres and
+   Redis are healthy and the pipeline services are honestly reported as down.
+
+### When you want the actual video pipeline
+
+`render.pipeline.yaml` is the full stack: the five BullMQ workers, the faster-whisper transcription
+service and the FFmpeg renderer. It needs paid instance types (workers do not exist on Render's free
+plan) plus Neon/Upstash/R2. Rename that file to `render.yaml`, point a new Blueprint at the repo, and
+follow the `sync: false` prompts. Until then uploads sit at `QUEUED` — the API does not fake progress.
 
 ## Step 3 — dashboard on Vercel (5 min)
 

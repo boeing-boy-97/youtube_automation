@@ -106,6 +106,10 @@ Google sign-in is one env block away (`docs/FIREBASE-AUTH.md`) and never replace
 The API origin for the build comes from `API_INTERNAL_URL` or `apps/web/api-target.json`; with
 neither, the deployment still succeeds and says so instead of failing.
 
+`render.yaml` is a free, self-contained backend (Render Postgres + Key Value + API) so the deployed
+dashboard can sign in with no other accounts; `render.pipeline.yaml` adds the workers, transcription
+and rendering when you want the pipeline running.
+
 A deployed dashboard never hides a broken backend: `https://<app>/healthz` reports the API origin it
 was built against and probes it, `/admin` shows the same link, and with the API unreachable the app
 says *that* instead of pretending you are logged out.

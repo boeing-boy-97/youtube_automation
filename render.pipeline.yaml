@@ -1,0 +1,333 @@
+# Render blueprint — FULL STACK (paid): API + five workers + transcription + rendering.
+#
+# This is the file to use once you want the actual video pipeline. It needs Neon (or any Postgres),
+# Upstash (or any Redis) and Cloudflare R2 for storage, plus paid instance types (workers do not
+# exist on Render's free plan). Rename this file to `render.yaml` in GitHub and point a new
+# Blueprint at the repo.
+#
+# Want the dashboard working today for $0? The repo's default `render.yaml` is a self-contained
+# free stack: Render Postgres + Key Value + the API, all wired together. See docs/DEPLOY-VERCEL.md §2.
+#
+# Why not Vercel for these four services: the API holds WebSocket-free but long-lived queue
+# connections, the workers are BullMQ processes that must stay alive, and both Python services run
+# FFmpeg and faster-whisper on the CPU. Serverless functions cannot do any of that. Vercel hosts
+# only `apps/web` (see docs/DEPLOY-VERCEL.md).
+#
+# Create the blueprint, then paste the values marked `sync: false` from Neon (DATABASE_URL),
+# Upstash (REDIS_URL) and your own secrets.
+services:
+  # ---------------------------------------------------------------- API (public entry point)
+  - type: web
+    name: clipforge-api
+    runtime: docker
+    dockerfilePath: ./infrastructure/docker/api.Dockerfile
+    dockerContext: .
+    plan: starter # free tier sleeps after 15 min, which stalls uploads mid-flight
+    healthCheckPath: /api/system/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_PORT
+        value: 4000
+      - key: APP_URL # the Vercel dashboard origin
+        sync: false
+      - key: ALLOWED_ORIGINS # same value as APP_URL
+        sync: false
+      - key: TIMEZONE
+        value: Asia/Kolkata
+      - key: LOG_LEVEL
+        value: info
+      - key: DATABASE_URL # Neon, with ?sslmode=require
+        sync: false
+      - key: REDIS_URL # Upstash (rediss://…)
+        sync: false
+      - key: REDIS_PREFIX
+        value: clipforge
+      - key: CREDENTIAL_ENCRYPTION_KEY # openssl rand -base64 32
+        generateValue: true
+      - key: SESSION_SECRET # openssl rand -base64 48
+        generateValue: true
+      - key: ADMIN_BOOTSTRAP_TOKEN # openssl rand -hex 32
+        generateValue: true
+      - key: ALLOW_SELF_REGISTRATION
+        value: false
+      # --- Firebase Auth (optional: leave blank for password-only login) ---
+      # docs/FIREBASE-AUTH.md steps 5-9. The three service-account fields must all be set or all be
+      # blank; the API refuses to boot on a half-configured verifier.
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY # keep the \n escapes; use FIREBASE_SERVICE_ACCOUNT_JSON instead if your panel mangles it
+        sync: false
+      - key: FIREBASE_WEB_API_KEY
+        sync: false
+      - key: FIREBASE_WEB_AUTH_DOMAIN
+        sync: false
+      - key: FIREBASE_WEB_APP_ID
+        sync: false
+      - key: FIREBASE_ALLOW_NEW_USERS
+        value: false
+      - key: FIREBASE_REQUIRE_VERIFIED_EMAIL
+        value: true
+      - key: STORAGE_DRIVER
+        value: s3 # local disk does not survive a deploy
+      - key: S3_ENDPOINT # Cloudflare R2: https://<account>.r2.cloudflarestorage.com
+        sync: false
+      - key: S3_REGION
+        value: auto
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_FORCE_PATH_STYLE
+        value: true
+      - key: S3_PUBLIC_BASE_URL # Instagram needs a public HTTPS URL for the Reel
+        sync: false
+      - key: WORK_DIR
+        value: /tmp/clipforge/work
+      - key: AI_ENGINE_URL # https://<ai-engine host> — fromService exposes only the bare host
+        sync: false
+      - key: AI_ENGINE_API_KEY
+        sync: false
+      - key: VIDEO_PROCESSOR_URL # https://<video-processor host>
+        sync: false
+      - key: VIDEO_PROCESSOR_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_TEXT_MODEL
+        value: gemini-2.0-flash
+      - key: GEMINI_VISION_MODEL
+        value: gemini-2.0-flash
+      - key: UPLOAD_PART_SIZE_MIB # keep 16 through the API; see DEPLOY-VERCEL.md before lowering
+        value: 16
+      - key: WORKER_CONCURRENCY_AI
+        value: 2
+      - key: WORKER_CONCURRENCY_RENDER
+        value: 1
+      - key: WORKER_CONCURRENCY_PUBLISH
+        value: 2
+      - key: JOB_LEASE_SECONDS
+        value: 900
+      - key: JOB_HEARTBEAT_SECONDS
+        value: 15
+
+  # ------------------------------------------------------- all five queue workers in one service
+  - type: worker
+    name: clipforge-workers
+    runtime: docker
+    dockerfilePath: ./infrastructure/docker/api.Dockerfile
+    dockerContext: .
+    dockerCommand: bash apps/api/scripts/run-workers.sh
+    plan: starter # background workers are not available on Render's free plan
+    envVars:
+      - key: NODE_ENV
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: NODE_ENV
+      - key: DATABASE_URL
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: DATABASE_URL
+      - key: REDIS_URL
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: REDIS_URL
+      - key: REDIS_PREFIX
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: REDIS_PREFIX
+      - key: APP_URL
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: APP_URL
+      - key: ALLOWED_ORIGINS
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: ALLOWED_ORIGINS
+      - key: TIMEZONE
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: TIMEZONE
+      - key: CREDENTIAL_ENCRYPTION_KEY
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: CREDENTIAL_ENCRYPTION_KEY
+      - key: SESSION_SECRET
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: SESSION_SECRET
+      - key: ADMIN_BOOTSTRAP_TOKEN
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: ADMIN_BOOTSTRAP_TOKEN
+      - key: STORAGE_DRIVER
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: STORAGE_DRIVER
+      - key: S3_ENDPOINT
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: S3_ENDPOINT
+      - key: S3_REGION
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: S3_REGION
+      - key: S3_BUCKET
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: S3_BUCKET
+      - key: S3_ACCESS_KEY_ID
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: S3_ACCESS_KEY_ID
+      - key: S3_SECRET_ACCESS_KEY
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: S3_SECRET_ACCESS_KEY
+      - key: S3_FORCE_PATH_STYLE
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: S3_FORCE_PATH_STYLE
+      - key: S3_PUBLIC_BASE_URL
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: S3_PUBLIC_BASE_URL
+      - key: WORK_DIR
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: WORK_DIR
+      - key: AI_ENGINE_URL
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: AI_ENGINE_URL
+      - key: AI_ENGINE_API_KEY
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: AI_ENGINE_API_KEY
+      - key: VIDEO_PROCESSOR_URL
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: VIDEO_PROCESSOR_URL
+      - key: VIDEO_PROCESSOR_API_KEY
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: VIDEO_PROCESSOR_API_KEY
+      - key: GEMINI_API_KEY
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: GEMINI_API_KEY
+      - key: GEMINI_TEXT_MODEL
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: GEMINI_TEXT_MODEL
+      - key: GEMINI_VISION_MODEL
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: GEMINI_VISION_MODEL
+      - key: WORKER_CONCURRENCY_AI
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: WORKER_CONCURRENCY_AI
+      - key: WORKER_CONCURRENCY_RENDER
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: WORKER_CONCURRENCY_RENDER
+      - key: WORKER_CONCURRENCY_PUBLISH
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: WORKER_CONCURRENCY_PUBLISH
+      - key: JOB_LEASE_SECONDS
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: JOB_LEASE_SECONDS
+      - key: JOB_HEARTBEAT_SECONDS
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: JOB_HEARTBEAT_SECONDS
+
+  # ------------------------------------------------- transcription + AI analysis (FastAPI, CPU)
+  - type: web
+    name: clipforge-ai-engine
+    runtime: docker
+    dockerfilePath: ./infrastructure/docker/ai-engine.Dockerfile
+    dockerContext: .
+    plan: standard # faster-whisper needs real CPU and ~2 GB; starter throttles badly
+    healthCheckPath: /health
+    envVars:
+      - key: AI_PROVIDER
+        value: gemini
+      - key: TEST_MODE
+        value: "0"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_TEXT_MODEL
+        value: gemini-2.0-flash
+      - key: GEMINI_VISION_MODEL
+        value: gemini-2.0-flash
+      - key: AI_ENGINE_API_KEY
+        sync: false
+      - key: WHISPER_MODEL
+        value: small.en # tiny.en is fast but mislabels technical speech
+      - key: WHISPER_DEVICE
+        value: cpu
+      - key: WHISPER_COMPUTE_TYPE
+        value: int8
+      - key: FFMPEG_PATH
+        value: ffmpeg
+      - key: FFPROBE_PATH
+        value: ffprobe
+      - key: WORK_DIR
+        value: /tmp/clipforge/ai
+
+  # ------------------------------------------------------------ rendering (FastAPI + FFmpeg)
+  - type: web
+    name: clipforge-video-processor
+    runtime: docker
+    dockerfilePath: ./infrastructure/docker/video-processor.Dockerfile
+    dockerContext: .
+    plan: standard # rendering is CPU-bound; starter encodes ~4x slower
+    healthCheckPath: /health
+    envVars:
+      - key: VIDEO_PROCESSOR_API_KEY
+        sync: false
+      - key: FFMPEG_PATH
+        value: ffmpeg
+      - key: FFPROBE_PATH
+        value: ffprobe
+      - key: LOG_LEVEL
+        value: info

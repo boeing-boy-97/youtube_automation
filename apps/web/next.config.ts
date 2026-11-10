@@ -46,7 +46,8 @@ function warn(lines: string[]): void {
 }
 
 const fromEnv = process.env.API_INTERNAL_URL?.trim();
-const fromJson = fromEnv ? { origin: null, note: null } : fromFile();
+// Local builds always talk to the local API; the committed origin is a deployment setting.
+const fromJson = fromEnv || !hosted ? { origin: null, note: null } : fromFile();
 
 let target: string;
 let problem: string | null = null;
@@ -70,13 +71,15 @@ if (fromEnv) {
   if (!/^https?:\/\//.test(target) || (hosted && isLocalAddress(target))) {
     problem = `api-target.json holds "${fromJson.origin}", which is not a public http(s) origin.`;
     target = SENTINEL;
+  } else if (fromJson.note) {
+    warn([fromJson.note]);
   } else {
     warn([`Using the API origin committed in apps/web/api-target.json: ${target}`]);
   }
 } else {
   target = hosted ? SENTINEL : LOCAL_DEFAULT;
   if (hosted) {
-    problem = fromJson.note ?? 'Neither API_INTERNAL_URL nor apps/web/api-target.json gave an API origin.';
+    problem = 'Neither API_INTERNAL_URL nor apps/web/api-target.json gave an API origin.';
   }
 }
 
