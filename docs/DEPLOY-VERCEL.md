@@ -86,6 +86,18 @@ DATABASE_URL='postgresql://…neon…?sslmode=require' npm run db:deploy
    curl -s https://clipforge-api.onrender.com/api/system/health
    ```
 
+### What "backend deployed" costs, honestly
+
+| Goal | What you need | Monthly |
+| --- | --- | --- |
+| Build goes green, dashboard loads, sign-in works | API only (`clipforge-api`) + free Neon + free Upstash | $0 (instance sleeps; first request ~30 s) |
+| Upload → transcript → clip → download actually runs | + `clipforge-workers`, `clipforge-ai-engine`, `clipforge-video-processor` | ~$7–21 depending on instance sizes |
+| Media survives a redeploy | + Cloudflare R2 (`STORAGE_DRIVER=s3`) | ~$0 at demo volume |
+
+Without the workers the pipeline stalls at `QUEUED` by design — the API does not fake progress. For a
+first demo you can run `STORAGE_DRIVER=local` with `WORK_DIR=/tmp/clipforge`, understanding that
+uploads disappear on the next deploy.
+
 **Note on plans:** Render's free instance type sleeps after 15 minutes and does not include
 background workers. `starter` for the API/workers and `standard` for the two Python services is the
 honest minimum for a working pipeline.
@@ -164,7 +176,8 @@ The dashboard now diagnoses this instead of logging you out. Three places say th
 | `/healthz` → `ok:false`, `upstream.error: "fetch failed"` | API down, or `API_INTERNAL_URL` wrong/typo'd | start the API; correct the env var **and redeploy** (it is read at build time) |
 | `/healthz` → 200, but sign-in returns 403 `CSRF_FAILED` | `APP_URL` / `ALLOWED_ORIGINS` on the API do not match the Vercel domain | set both to the exact Vercel origin, restart the API |
 | `/healthz` → 200, sign-in 401 for a correct password | API was bootstrapped with different data, or login rate-limit (10 per 300 s) | check the API logs; wait out the limiter |
-| build fails with “API_INTERNAL_URL must be set to the public API origin” | the env var is missing, or set to `http://localhost:4000` | set the public https origin — the guard exists so a dashboard is never shipped pointing at 127.0.0.1 |
+| build fails with “API_INTERNAL_URL is missing or unusable” | the env var is missing, set to `http://localhost:4000`, or not a URL | the build log now prints the exact clicks: Settings → Environment Variables → add `API_INTERNAL_URL` for **Production, Preview and Development** → then **redeploy** (the value is frozen at build time, editing it alone changes nothing) |
+| build succeeded but every page says “cannot reach its API” | the variable points at a host that is not running (a placeholder, or the API is asleep) | open `https://<app>/healthz` — it names the origin and the failure; fix the variable and redeploy |
 | images/video break but the UI is fine | `/media` rewrite target wrong, or `STORAGE_DRIVER=local` on the API | use `STORAGE_DRIVER=s3` + `S3_PUBLIC_BASE_URL` on a hosted API |
 
 ## Gotchas that bite in production
