@@ -13,7 +13,7 @@ export default function DashboardPage() {
 
   if (dashboard.isLoading) {
     return (
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
         {Array.from({ length: 4 }).map((_, index) => (
           <Card key={index}>
             <Skeleton rows={2} />
@@ -30,8 +30,9 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-7">
-      <Section title="Workspace overview" description="Every number below comes from the database — nothing is simulated.">
-        <div className="grid gap-4 md:grid-cols-4">
+      <Section
+        as="h1" title="Workspace overview" description="Every number below comes from the database — nothing is simulated.">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
           <StatCard label="Source videos" value={counts.sources} hint="Uploaded and validated media" />
           <StatCard label="Generated clips" value={counts.clips} hint={`${data.variantBreakdown.map((v) => `${v.count}×${v.durationKind}s`).join(' · ') || 'none yet'}`} />
           <StatCard label="Published posts" value={counts.published} hint={data.publishedByPlatform.map((p) => `${p.platform}: ${p.count}`).join(' · ') || 'No publishes yet'} tone={counts.published > 0 ? 'positive' : 'default'} />
@@ -41,7 +42,7 @@ export default function DashboardPage() {
 
       <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
         <Card>
-          <CardHeader title="Recent processing jobs" description="Live stage and progress reported by the workers" action={<Link href="/jobs" className="text-[13px] font-medium text-accent hover:underline">View all</Link>} />
+          <CardHeader title="Recent processing jobs" description="Live stage and progress reported by the workers" action={<Link href="/jobs" className="inline-flex min-h-[24px] items-center text-[13px] font-medium text-accent hover:underline">View all</Link>} />
           {data.recentJobs.length === 0 ? (
             <EmptyState title="No processing jobs yet" description="Upload a source video to start generating vertical clips." action={<Link href="/create" className="btn-primary">Create project</Link>} />
           ) : (
@@ -50,7 +51,7 @@ export default function DashboardPage() {
                 <li key={job.id} className="px-5 py-3.5">
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <Link href={`/jobs/${job.id}`} className="truncate text-sm font-medium text-ink hover:text-accent">
+                      <Link href={`/jobs/${job.id}`} className="block truncate py-1 text-sm font-medium text-ink hover:text-accent">
                         {job.fileName ?? 'Untitled source'}
                       </Link>
                       <p className="text-xs text-ink-faint">
@@ -78,7 +79,7 @@ export default function DashboardPage() {
               {data.recentClips.map((clip) => (
                 <li key={clip.id} className="flex items-center justify-between gap-3 px-5 py-3">
                   <div className="min-w-0">
-                    <Link href={`/clips?highlight=${clip.id}`} className="truncate text-[13px] font-medium text-ink hover:text-accent">
+                    <Link href={`/clips?highlight=${clip.id}`} className="block truncate py-1 text-[13px] font-medium text-ink hover:text-accent">
                       {clip.title || 'Untitled clip'}
                     </Link>
                     <p className="text-xs text-ink-faint">{clip.durationKind}s · score {clip.qualityScore}/100</p>
@@ -93,7 +94,7 @@ export default function DashboardPage() {
 
       <div className="grid gap-5 lg:grid-cols-2">
         <Card>
-          <CardHeader title="Recent activity" description="Audit trail written by the API" action={<Link href="/activity" className="text-[13px] font-medium text-accent hover:underline">Full log</Link>} />
+          <CardHeader title="Recent activity" description="Audit trail written by the API" action={<Link href="/activity" className="inline-flex min-h-[24px] items-center text-[13px] font-medium text-accent hover:underline">Full log</Link>} />
           <ul className="divide-y divide-line">
             {data.recentActivity.slice(0, 7).map((item) => (
               <li key={item.id} className="px-5 py-2.5">
@@ -109,7 +110,7 @@ export default function DashboardPage() {
           <CardHeader
             title="System health"
             description="Measured from the running services"
-            action={isOperator ? <Link href="/admin" className="text-[13px] font-medium text-accent hover:underline">Details</Link> : undefined}
+            action={isOperator ? <Link href="/admin" className="inline-flex min-h-[24px] items-center text-[13px] font-medium text-accent hover:underline">Details</Link> : undefined}
           />
           <div className="space-y-2 px-5 py-4">
             {system.data ? (
@@ -122,11 +123,11 @@ export default function DashboardPage() {
                   system.data.readiness.components.vp,
                   ...system.data.readiness.components.integration,
                 ].map((component) => (
-                  <div key={component.component} className="flex items-center justify-between gap-3 text-[13px]">
-                    <span className="font-medium text-ink">{component.component}</span>
-                    <span className="flex items-center gap-2">
-                      <span className="max-w-[220px] truncate text-xs text-ink-faint">{component.message}</span>
-                      <StatusBadge value={component.status} />
+                  <div key={component.component} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[13px]">
+                    <span className="min-w-0 font-medium text-ink">{component.component}</span>
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="min-w-0 max-w-[220px] truncate text-xs text-ink-faint">{component.message}</span>
+                      <span className="shrink-0"><StatusBadge value={component.status} /></span>
                     </span>
                   </div>
                 ))}

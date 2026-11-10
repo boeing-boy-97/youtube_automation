@@ -575,11 +575,19 @@ def s19_worker_restart() -> None:
         queued["status"] not in TERMINAL and queued["status"] != "FAILED",
         f"status={queued['status']}, stage={queued['stage']}",
     )
+    # Restart the role the same way the stack starts it: a bare `node` would inherit this script's
+    # environment (no DATABASE_URL/Redis), fail immediately, and turn a durability test into a
+    # false negative. Sourcing .env is what `scripts/dev-up.sh` and the container entrypoint do.
     subprocess.Popen(
-        ["node", "dist/workers/render.worker.js"],
-        cwd="/home/user/clipforge-ai/apps/api",
+        [
+            "bash",
+            "-c",
+            "set -a && . ./.env && set +a && exec node apps/api/dist/workers/render.worker.js",
+        ],
+        cwd="/home/user/clipforge-ai",
         stdout=open("/tmp/w-render-restart.log", "w"),
         stderr=subprocess.STDOUT,
+        start_new_session=True,
     )
     detail = wait_for_job(client, job["id"], timeout=900)
     results.record(

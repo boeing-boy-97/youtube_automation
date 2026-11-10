@@ -2,6 +2,7 @@ import { statfs } from 'node:fs/promises';
 import { Injectable } from '@nestjs/common';
 import { prisma } from '@clipforge/database';
 import { env } from '../common/env';
+import { StorageService } from '../storage/storage.service';
 import { QueueService } from '../queues/queue.service';
 import { SystemService } from './system.service';
 import {
@@ -23,6 +24,7 @@ export class DiagnosticsService {
   constructor(
     private readonly system: SystemService,
     private readonly queues: QueueService,
+    private readonly storage: StorageService,
   ) {}
 
   async report(workspaceId: string): Promise<DiagnosticsReport> {
@@ -35,6 +37,7 @@ export class DiagnosticsService {
       expiringCredentials,
       failedJobs,
       disk,
+      mediaIntegrity,
       healthEvents,
     ] = await Promise.all([
       this.system.readiness(),
@@ -45,6 +48,7 @@ export class DiagnosticsService {
       this.expiringCredentials(workspaceId),
       this.recentFailedJobs(workspaceId),
       this.diskUsage(),
+      this.mediaIntegrity(),
       prisma.systemHealthEvent.findMany({ orderBy: { observedAt: 'desc' }, take: 10 }),
     ]);
 
@@ -57,6 +61,7 @@ export class DiagnosticsService {
       outboxBacklog,
       expiringCredentials,
       disk,
+      mediaIntegrity,
     ];
 
     if (failedJobs.length > 0) {
@@ -303,6 +308,77 @@ export class DiagnosticsService {
       take: 10,
       select: { id: true, status: true, stage: true, errorCode: true, attempt: true, maxAttempts: true, createdAt: true },
     });
+  }
+
+  /**
+   * A database row whose object is gone is the failure mode that looks like a bug in the player:
+   * the clip list renders, the video 404s. Checking every object would mean an S3 HEAD per row, so
+   * the newest 25 variants and 10 sources are sampled — recent breakage is what an operator needs.
+   */
+  private async mediaIntegrity(): Promise<DiagnosticFinding> {
+    const [variants, sources] = await Promise.all([
+      prisma.clipVariant.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 25,
+        select: { id: true, createdAt: true, mediaAsset: { select: { storageKey: true } } },
+      }),
+      prisma.sourceVideo.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: { id: true, createdAt: true, storageKey: true },
+      }),
+    ]);
+    const candidates = [
+      ...variants.map((variant) => ({ kind: 'clip variant' as const, id: variant.id, createdAt: variant.createdAt, key: variant.mediaAsset?.storageKey })),
+      ...sources.map((source) => ({ kind: 'source video' as const, id: source.id, createdAt: source.createdAt, key: source.storageKey })),
+    ].filter((candidate): candidate is typeof candidate & { key: string } => Boolean(candidate.key));
+
+    const missing: Array<Record<string, unknown>> = [];
+    for (const candidate of candidates) {
+      try {
+        if (!(await this.storage.exists(candidate.key))) {
+          missing.push({ kind: candidate.kind, id: candidate.id, key: candidate.key, createdAt: candidate.createdAt.toISOString() });
+        }
+      } catch (error) {
+        // A driver error is reported as a component problem, not as 35 missing objects.
+        return describeFinding(
+          'media.integrity',
+          'Storage objects could not be verified',
+          'warning',
+          `Existence check failed for ${candidate.kind} ${candidate.id}: ${(error as Error).message}`,
+          'Confirm the storage driver credentials and bucket (STORAGE_DRIVER / S3_* settings).',
+        );
+      }
+    }
+
+    if (candidates.length === 0) {
+      return describeFinding(
+        'media.integrity',
+        'No stored media to verify yet',
+        'ok',
+        'There are no rendered variants or source videos in the database.',
+        '',
+        { count: 0 },
+      );
+    }
+    if (missing.length === 0) {
+      return describeFinding(
+        'media.integrity',
+        'Every sampled object exists in storage',
+        'ok',
+        `${candidates.length} recent object(s) were checked and all are readable.`,
+        '',
+        { count: 0 },
+      );
+    }
+    return describeFinding(
+      'media.integrity',
+      'Records point at objects that are no longer in storage',
+      missing.length >= candidates.length / 2 ? 'critical' : 'warning',
+      `${missing.length} of ${candidates.length} sampled object(s) are missing from the ${env.STORAGE_DRIVER} driver. Their previews return 404 MEDIA_NOT_FOUND.`,
+      'Restore the objects from backup or delete the orphaned records; do not re-enable publishing for them.',
+      { count: missing.length, samples: missing.slice(0, 10) },
+    );
   }
 
   private async diskUsage(): Promise<DiagnosticFinding> {

@@ -6,6 +6,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useClip, useClips, usePublishing } from '@/lib/hooks';
 import { Badge, Card, CardHeader, EmptyState, ErrorState, Field, Section, Skeleton, StatusBadge } from '@/components/ui';
+import { ClipPlayer } from '@/components/clip-player';
 
 export default function ClipsPage() {
   const [durationFilter, setDurationFilter] = useState<number | undefined>(undefined);
@@ -16,6 +17,7 @@ export default function ClipsPage() {
   return (
     <div className="space-y-5">
       <Section
+        as="h1"
         title="Clip library"
         description="Clips selected by the AI pipeline. Only clips that scored above your configured threshold exist here."
         action={
@@ -90,7 +92,7 @@ export default function ClipsPage() {
               {detail.data!.variants.map((variant) => (
                 <div key={variant.id} className="rounded-xl2 border border-line bg-surface-muted p-3">
                   {variant.previewUrl ? (
-                    <video src={variant.previewUrl} controls playsInline className="mb-2 aspect-[9/16] w-full max-w-[210px] rounded-lg bg-black" />
+                    <ClipPlayer src={variant.previewUrl} />
                   ) : (
                     <p className="mb-2 text-xs text-ink-soft">No rendered file available yet.</p>
                   )}

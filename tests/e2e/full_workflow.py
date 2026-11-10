@@ -204,8 +204,11 @@ def main() -> int:
         raise SystemExit(f"job failed: {detail['errorCode']} {detail['errorMessage']}")
     assert detail["clipCount"] > 0, "job completed without producing any clips"
 
-    clips = request("GET", "/api/clips")
-    assert clips["total"] > 0, "no clips in the library"
+    # Assert on this run's own artifact: a shared library may hold clips from earlier suites whose
+    # media was cleaned up, and picking items[0] would test someone else's leftovers.
+    assert detail["clipCount"] > 0, "job reported clips but the detail view lists none"
+    clips = request("GET", f"/api/clips?jobId={job_id}")
+    assert clips["total"] > 0, f"no clips recorded for job {job_id}"
     clip = request("GET", f"/api/clips/{clips['items'][0]['id']}")
     step(f"clip: {clip['title'][:60]!r} score={clip['qualityScore']} {clip['durationKind']}s variants={len(clip['variants'])}")
 

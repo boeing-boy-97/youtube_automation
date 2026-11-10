@@ -1,12 +1,21 @@
 'use client';
 
-import { useIsOperator, useSystemOverview } from '@/lib/hooks';
-import { Card, CardHeader, ErrorState, Section, Skeleton, StatCard, StatusBadge } from '@/components/ui';
+import { useDiagnostics, useIsOperator, useSystemOverview, type DiagnosticSeverity } from '@/lib/hooks';
+import { Badge, Card, CardHeader, ErrorState, Section, Skeleton, StatCard, StatusBadge } from '@/components/ui';
 import { formatRelative } from '@/lib/api';
+
+/** One colour vocabulary across the app: green = fine, amber = look soon, red = act now. */
+const SEVERITY_TONE: Record<DiagnosticSeverity, 'positive' | 'neutral' | 'caution' | 'danger'> = {
+  ok: 'positive',
+  info: 'neutral',
+  warning: 'caution',
+  critical: 'danger',
+};
 
 export default function AdminPage() {
   const isOperator = useIsOperator();
   const system = useSystemOverview(isOperator);
+  const diagnostics = useDiagnostics(isOperator);
 
   if (!isOperator) {
     return (
@@ -32,7 +41,8 @@ export default function AdminPage() {
 
   return (
     <div className="space-y-5">
-      <Section title="System administration" description="Read-only operational view. Values are measured live from the database, Redis and the internal services." />
+      <Section
+        as="h1" title="System administration" description="Read-only operational view. Values are measured live from the database, Redis and the internal services." />
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <StatCard label="API uptime" value={`${Math.floor(data.uptimeSeconds / 60)}m`} hint={`Since last restart · ${data.timezone}`} />
@@ -65,11 +75,11 @@ export default function AdminPage() {
           <ul className="divide-y divide-line">
             {components.map((component) => (
               <li key={component.component} className="flex items-center justify-between gap-3 px-5 py-2.5">
-                <div>
-                  <p className="text-[13px] font-medium text-ink">{component.component}</p>
-                  <p className="text-xs text-ink-faint">{component.message}{component.latencyMs !== undefined ? ` · ${component.latencyMs}ms` : ''}</p>
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] font-medium text-ink">{component.component}</p>
+                  <p className="truncate text-xs text-ink-faint">{component.message}{component.latencyMs !== undefined ? ` · ${component.latencyMs}ms` : ''}</p>
                 </div>
-                <StatusBadge value={component.status} />
+                <span className="shrink-0"><StatusBadge value={component.status} /></span>
               </li>
             ))}
           </ul>
@@ -82,12 +92,12 @@ export default function AdminPage() {
           ) : (
             <ul className="divide-y divide-line">
               {data.workers.map((worker) => (
-                <li key={`${worker.role}-${worker.workerId}`} className="flex items-center justify-between gap-3 px-5 py-2.5">
-                  <div>
-                    <p className="text-[13px] font-medium text-ink">{worker.role}</p>
-                    <p className="font-mono text-xs text-ink-faint">{worker.workerId} · heartbeat {worker.lastHeartbeatAgoSeconds}s ago</p>
+                <li key={`${worker.role}-${worker.workerId}`} className="flex items-start justify-between gap-3 px-5 py-2.5">
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-medium text-ink">{worker.role}</p>
+                    <p className="truncate font-mono text-xs text-ink-faint">{worker.workerId} · heartbeat {worker.lastHeartbeatAgoSeconds}s ago</p>
                   </div>
-                  <StatusBadge value={worker.alive ? 'healthy' : 'down'} />
+                  <span className="shrink-0"><StatusBadge value={worker.alive ? 'healthy' : 'down'} /></span>
                 </li>
               ))}
             </ul>
@@ -117,20 +127,42 @@ export default function AdminPage() {
       </Card>
 
       <Card>
+        <CardHeader title="Diagnostics" description="Actionable findings with a measured detail and the step that resolves each one" />
+        {diagnostics.isLoading ? (
+          <Skeleton rows={4} />
+        ) : diagnostics.error ? (
+          <div className="p-5"><ErrorState message={diagnostics.error.message} onRetry={() => void diagnostics.refetch()} /></div>
+        ) : (
+          <ul className="divide-y divide-line">
+            {diagnostics.data!.findings.map((finding) => (
+              <li key={finding.id} className="flex items-start justify-between gap-3 px-5 py-3">
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] font-medium text-ink">{finding.title}</p>
+                  <p className="text-xs text-ink-soft">{finding.detail}</p>
+                  {finding.action ? <p className="mt-0.5 text-xs text-ink-faint">→ {finding.action}</p> : null}
+                </div>
+                <span className="shrink-0"><Badge tone={SEVERITY_TONE[finding.severity]}>{finding.severity}</Badge></span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      <Card>
         <CardHeader title="Health events" description="Recorded by the monitoring probes" />
         {data.healthEvents.length === 0 ? (
           <p className="px-5 py-6 text-sm text-ink-soft">No health events recorded.</p>
         ) : (
           <ul className="divide-y divide-line">
             {data.healthEvents.slice(0, 12).map((event) => (
-              <li key={event.id} className="flex items-center justify-between gap-3 px-5 py-2.5">
-                <div>
-                  <p className="text-[13px] font-medium text-ink">{event.component} · {event.severity}</p>
-                  <p className="text-xs text-ink-faint">{event.message}</p>
+              <li key={event.id} className="flex items-start justify-between gap-3 px-5 py-2.5">
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] font-medium text-ink">{event.component} · {event.severity}</p>
+                  <p className="truncate text-xs text-ink-faint">{event.message}</p>
                 </div>
-                <span className="flex items-center gap-2">
+                <span className="flex shrink-0 items-center gap-2">
                   <StatusBadge value={event.status} />
-                  <span className="text-xs text-ink-faint">{formatRelative(event.observedAt)}</span>
+                  <span className="whitespace-nowrap text-xs text-ink-faint">{formatRelative(event.observedAt)}</span>
                 </span>
               </li>
             ))}

@@ -22,3 +22,6 @@ __pycache__/
 # Local-only secrets and generated artifacts
 *.local
 .bootstrap-token.local
+
+# Regenerable evidence: python3 tests/e2e/ui_responsive.py --screens
+artifacts/ui/

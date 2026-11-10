@@ -2,19 +2,20 @@
 
 Every file that makes up this project, with its line count and what it does. This is an index, not a copy: the code lives at the path shown. Regenerate with `.venv/bin/python scripts/build-code-map.py` — do not hand-edit.
 
-**146 source files · 21,300 lines · 190 files tracked in git**
+**147 source files · 21,886 lines · 194 files tracked in git**
 
-Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `7d85a81`
+Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `0d43249`
 
 
 ## API server — `apps/api`
 
-62 source files · 7,555 lines
+63 source files · 7,762 lines
 
 | file | lines | purpose |
 | --- | ---: | --- |
 | `apps/api/README.md` | 41 | `apps/api` — backend API and workers |
-| `apps/api/package.json` | 52 | — |
+| `apps/api/package.json` | 54 | — |
+| `apps/api/scripts/run-workers.sh` | 71 | !/usr/bin/env bash |
 | `apps/api/src/accounts/accounts.controller.ts` | 95 | — |
 | `apps/api/src/accounts/accounts.module.ts` | 6 | — |
 | `apps/api/src/accounts/accounts.service.ts` | 486 | Signed, single-use, server-stored OAuth state (Redis, 10 minute TTL). |
@@ -43,9 +44,9 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `7d85a81`
 | `apps/api/src/jobs/jobs.module.ts` | 8 | — |
 | `apps/api/src/jobs/jobs.service.ts` | 320 | Manual retry: re-enters the state machine and re-enqueues a durable intent. |
 | `apps/api/src/load-env.ts` | 15 | Loads .env for local/container runs. In production the platform injects real environment variables; .env is only used where an operator placed it. |
-| `apps/api/src/main.ts` | 75 | — |
+| `apps/api/src/main.ts` | 80 | — |
 | `apps/api/src/media/media-validation.service.ts` | 129 | FFprobe-backed media validation. Never trusts the declared MIME type alone. |
-| `apps/api/src/media/media.controller.ts` | 97 | Object delivery. The local storage driver exposes objects here with HTTP Range support so the dashboard can scrub video. Keys are resolved from the da |
+| `apps/api/src/media/media.controller.ts` | 150 | Object delivery. The local storage driver exposes objects here with HTTP Range support so the dashboard can scrub video. Keys are resolved from the da |
 | `apps/api/src/media/ssrf-guard.ts` | 158 | SSRF protection for the "import from direct URL" source path. Rules enforced before any outbound request: - scheme must be http(s) (https in productio |
 | `apps/api/src/publishing/publishing.controller.ts` | 55 | — |
 | `apps/api/src/publishing/publishing.module.ts` | 14 | — |
@@ -59,10 +60,10 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `7d85a81`
 | `apps/api/src/storage/storage.service.ts` | 309 | Object storage abstraction. `STORAGE_DRIVER` is explicit (env). There is no driver fallback: if S3 is selected but misconfigured the API refuses to st |
 | `apps/api/src/system/dashboard.controller.ts` | 16 | — |
 | `apps/api/src/system/diagnostics.controller.ts` | 23 | Diagnostics live in their own controller so the route table reads as two surfaces: `/api/system` (health, queues, events) and `/api/system/diagnostics |
-| `apps/api/src/system/diagnostics.service.ts` | 333 | Builds the operator diagnostics report. Thresholds are deliberately conservative and are written into the finding text, so nobody has to read this fil |
+| `apps/api/src/system/diagnostics.service.ts` | 409 | Builds the operator diagnostics report. Thresholds are deliberately conservative and are written into the finding text, so nobody has to read this fil |
 | `apps/api/src/system/diagnostics.types.ts` | 64 | Diagnostics: the questions an operator actually asks when something looks wrong at 2am. - is anything stuck, and since when? - is the outbox draining? |
 | `apps/api/src/system/system.controller.ts` | 48 | — |
-| `apps/api/src/system/system.module.ts` | 14 | — |
+| `apps/api/src/system/system.module.ts` | 16 | — |
 | `apps/api/src/system/system.service.ts` | 276 | Worker presence is derived from Redis heartbeats renewed by each worker. |
 | `apps/api/src/usage/usage.controller.ts` | 38 | Usage and cost reporting. Operator-only: spend per workspace is commercially sensitive and is not part of a member's job. Every query is scoped to the |
 | `apps/api/src/usage/usage.module.ts` | 7 | — |
@@ -81,36 +82,37 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `7d85a81`
 
 ## Web dashboard — `apps/web`
 
-22 source files · 3,028 lines
+22 source files · 3,396 lines
 
 | file | lines | purpose |
 | --- | ---: | --- |
 | `apps/web/README.md` | 35 | `apps/web` — dashboard |
-| `apps/web/app/accounts/page.tsx` | 272 | — |
-| `apps/web/app/activity/page.tsx` | 53 | — |
-| `apps/web/app/admin/page.tsx` | 142 | — |
-| `apps/web/app/brand/page.tsx` | 272 | — |
-| `apps/web/app/clips/page.tsx` | 305 | Per-platform metadata is editable before publishing — the API has supported PATCH since the start, so a read-only panel left a required workflow unrea |
-| `apps/web/app/create/page.tsx` | 173 | — |
-| `apps/web/app/globals.css` | 24 | — |
+| `apps/web/app/accounts/page.tsx` | 273 | — |
+| `apps/web/app/activity/page.tsx` | 54 | — |
+| `apps/web/app/admin/page.tsx` | 174 | One colour vocabulary across the app: green = fine, amber = look soon, red = act now. |
+| `apps/web/app/brand/page.tsx` | 273 | — |
+| `apps/web/app/clips/page.tsx` | 307 | Per-platform metadata is editable before publishing — the API has supported PATCH since the start, so a read-only panel left a required workflow unrea |
+| `apps/web/app/create/page.tsx` | 174 | — |
+| `apps/web/app/globals.css` | 53 | — |
 | `apps/web/app/jobs/[id]/page.tsx` | 142 | — |
-| `apps/web/app/jobs/page.tsx` | 70 | — |
-| `apps/web/app/layout.tsx` | 21 | — |
+| `apps/web/app/jobs/page.tsx` | 102 | — |
+| `apps/web/app/layout.tsx` | 31 | — |
 | `apps/web/app/login/page.tsx` | 105 | — |
-| `apps/web/app/page.tsx` | 146 | — |
-| `apps/web/app/publishing/page.tsx` | 107 | — |
+| `apps/web/app/page.tsx` | 147 | — |
+| `apps/web/app/publishing/page.tsx` | 143 | — |
 | `apps/web/app/settings/page.tsx` | 256 | — |
 | `apps/web/components/providers.tsx` | 16 | — |
-| `apps/web/components/shell.tsx` | 121 | — |
-| `apps/web/components/ui.tsx` | 205 | — |
+| `apps/web/components/shell.tsx` | 309 | Routes shown in the phone bottom bar; everything else lives behind "More". |
+| `apps/web/components/ui.tsx` | 232 | The first Section on a page is that page's document heading (`h1`); the rest stay `h2`. |
 | `apps/web/lib/api.ts` | 178 | Chunked upload through the API with the rights declaration sent at completion. |
 | `apps/web/lib/config-schema.ts` | 61 | Field metadata only — no values. Defaults are deliberately absent: every value must be set explicitly by an operator, matching the API's Configuration |
-| `apps/web/lib/hooks.ts` | 315 | Operator surfaces (system, usage, workspace configuration, brand assets, OAuth accounts) are OWNER/ADMIN only on the API. Pages must ask the same ques |
+| `apps/web/lib/hooks.ts` | 351 | Operator surfaces (system, usage, workspace configuration, brand assets, OAuth accounts) are OWNER/ADMIN only on the API. Pages must ask the same ques |
 | `apps/web/next-env.d.ts` | 6 | — |
 | `apps/web/next.config.ts` | 35 | The browser only ever talks to this Next.js origin. /api and /media are proxied to the NestJS API, so session cookies stay same-origin (no CORS, no to |
 | `apps/web/package.json` | 28 | — |
 | `apps/web/tailwind.config.ts` | 27 | /*.{ts,tsx}', './components/* |
 | `apps/web/tsconfig.json` | 10 | — |
+| `apps/web/vercel.json` | 19 | — |
 
 ## Shared packages — `packages`
 
@@ -177,16 +179,16 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `7d85a81`
 
 ## Tests — `tests`
 
-16 source files · 2,574 lines
+16 source files · 2,585 lines
 
 | file | lines | purpose |
 | --- | ---: | --- |
 | `tests/README.md` | 18 | `tests/` |
 | `tests/e2e/authorization_matrix.py` | 220 | Authorization matrix against a running ClipForge stack. Three questions this answers, with evidence rather than inspection: 1. Can an unauthenticated  |
-| `tests/e2e/full_workflow.py` | 257 | End-to-end workflow test against a running ClipForge stack. Exercises the real HTTP API and the real workers: login → configure workspace → upload a r |
+| `tests/e2e/full_workflow.py` | 260 | End-to-end workflow test against a running ClipForge stack. Exercises the real HTTP API and the real workers: login → configure workspace → upload a r |
 | `tests/e2e/harness.py` | 187 | Shared helpers for the ClipForge end-to-end suites. Both `authorization_matrix.py` and `scenarios.py` drive the live stack through its real HTTP API w |
 | `tests/e2e/logic_probes.py` | 214 | Adversarial probes of the core algorithms — does the logic hold, not just the happy path? The unit tests check the happy paths the product needs. Thes |
-| `tests/e2e/scenarios.py` | 636 | Nineteen end-to-end scenarios against a running ClipForge stack. Each scenario answers one question an operator or reviewer would ask, and prints the  |
+| `tests/e2e/scenarios.py` | 644 | Nineteen end-to-end scenarios against a running ClipForge stack. Each scenario answers one question an operator or reviewer would ask, and prints the  |
 | `tests/integration/database.test.ts` | 245 | Integration tests against the real PostgreSQL database. These exercise the durable primitives the workers rely on: the job state machine, worker lease |
 | `tests/integration/storage.test.ts` | 89 | Integration tests for the local storage driver's byte-exact behaviour. Both cases are regressions from a real defect: ranged reads that ignored the of |
 | `tests/python/test_render_validation.py` | 210 | Tests for render output validation (probe + content scanning). Run with: .venv/bin/python tests/python/test_render_validation.py (or `npm run test:pyt |
@@ -217,7 +219,7 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `7d85a81`
 
 | file | lines | purpose |
 | --- | ---: | --- |
-| `README.md` | 104 | ClipForge AI |
+| `README.md` | 114 | ClipForge AI |
 | `docker-compose.dev.yml` | 178 | Development stack: every service hot-reloads or runs from source, storage is local. |
 | `docker-compose.prod.yml` | 218 | Production stack: built images, Caddy TLS front door, scheduled PostgreSQL backups. |
 | `infrastructure/README.md` | 17 | `infrastructure/` |
@@ -245,12 +247,13 @@ Repository root `/home/user/clipforge-ai` · branch `master` · HEAD `7d85a81`
 | `docs/AI-PIPELINE.md` | 93 | AI pipeline |
 | `docs/ARCHITECTURE.md` | 87 | Architecture |
 | `docs/CONFIGURATION.md` | 79 | Configuration |
+| `docs/DEPLOY-VERCEL.md` | 145 | Deploying ClipForge AI |
 | `docs/FOLDER-STRUCTURE.md` | 87 | Folder structure |
 | `docs/IMPLEMENTATION_STATUS.md` | 213 | Implementation status — independent audit round |
 | `docs/OPERATIONS.md` | 76 | Operations |
 | `docs/PLATFORM-SETUP.md` | 63 | Platform setup (Google / Meta / storage) |
 | `docs/TESTING.md` | 112 | Testing |
-| `docs/VERIFICATION.md` | 249 | Verification report |
+| `docs/VERIFICATION.md` | 310 | Verification report |
 | `docs/openapi.json` | 1 | — |
 
 ---

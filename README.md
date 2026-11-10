@@ -61,8 +61,13 @@ npm run dev:api                      # http://localhost:4000  (Swagger at /api/d
 npm run dev:web                      # http://localhost:3000
 .venv/bin/uvicorn app.main:app --app-dir services/ai-engine --port 8100
 .venv/bin/uvicorn app.main:app --app-dir services/video-processor --port 8200
-node apps/api/dist/workers/pipeline.worker.js   # plus render/publish/scheduler/recovery
+bash apps/api/scripts/run-workers.sh             # all five roles, with per-role restart/backoff
 ```
+
+The end-to-end suites need real media. Generate it offline (no downloads) with
+`bash scripts/make-testdata.sh /home/user/testdata` — it narrates
+`tests/fixtures/speech-script.txt` with `espeak-ng` and muxes the speech onto a moving test pattern,
+because the pipeline (correctly) refuses to invent highlights from silent video.
 
 First run: open `/login` → **First-run setup** and create the owner with `ADMIN_BOOTSTRAP_TOKEN`.
 There is no seeded user and no default password.
@@ -82,14 +87,19 @@ Or run the whole stack in containers: `docker compose -f docker-compose.dev.yml 
 | Authorization matrix | `.venv/bin/python tests/e2e/authorization_matrix.py` | 27/27 |
 | Logic probes (adversarial) | `.venv/bin/python tests/e2e/logic_probes.py` | 40/40 |
 | End-to-end workflow (single journey) | `.venv/bin/python tests/e2e/full_workflow.py <video>` | PASSED |
+| Browser UI audit (5 viewports × 10 routes) | `python3 tests/e2e/ui_responsive.py` | 165 checks, 0 failures |
 | Service smoke test | `bash infrastructure/scripts/healthcheck.sh` | all healthy |
+
+`npm audit` findings and their triage live in `docs/SECURITY-NOTES.md`; nothing is silently accepted.
 
 Deployment: `docs/DEPLOY-VERCEL.md` — the dashboard runs on Vercel; the API, the five workers and
 both Python services run as containers (Render blueprint included), because serverless functions
 cannot host queue consumers or FFmpeg.
 
 `docs/VERIFICATION.md` records exactly what was executed, what passed, what is blocked on
-third-party credentials, and the known limitations.
+third-party credentials, and the known limitations. The dashboard is responsive by construction —
+drawer navigation below `lg`, a bottom bar on phones, card lists instead of wide tables on small
+screens — and that is enforced by the browser audit rather than by review.
 
 ## Status of external integrations
 

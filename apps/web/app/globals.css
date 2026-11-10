@@ -5,10 +5,39 @@
 :root { --font-inter: 'Inter', system-ui, sans-serif; }
 
 html, body { height: 100%; }
-body { @apply bg-surface-muted text-ink antialiased; font-feature-settings: 'cv02','cv03','cv04','ss01'; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  @apply bg-surface-muted text-ink antialiased;
+  font-feature-settings: 'cv02','cv03','cv04','ss01';
+  /* Long unbroken strings (storage keys, URLs) must never force a horizontal scrollbar.
+     `break-word`, not `anywhere`: `anywhere` also shrinks min-content, which collapsed table
+     cells to one character per line on narrow screens. */
+  overflow-wrap: break-word;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Keyboard users get a visible ring; pointer users never see it. */
+:focus-visible { outline: 2px solid theme('colors.accent.DEFAULT'); outline-offset: 2px; border-radius: 6px; }
+
+/* Touch devices: keep every control at least 40px tall (WCAG 2.5.8 wants 24, fingers want 40). */
+@media (pointer: coarse) {
+  button, .btn, a.btn { min-height: 40px; }
+}
+
+@keyframes cf-drawer-in { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+@keyframes cf-fade-in { from { opacity: 0; } to { opacity: 1; } }
+.cf-drawer { animation: cf-drawer-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.cf-fade { animation: cf-fade-in 150ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cf-drawer, .cf-fade { animation: none; }
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
 
 @layer components {
-  .card { @apply rounded-xl2 border border-line bg-surface shadow-card; }
+  /* min-w-0 keeps a card honest inside a grid/flex parent: without it the card grows to the
+   min-content width of a wide table instead of letting the table scroll inside it. */
+  .card { @apply min-w-0 rounded-xl2 border border-line bg-surface shadow-card; }
   .label { @apply text-[13px] font-medium text-ink-soft; }
   .hint { @apply text-xs text-ink-faint; }
   .input { @apply w-full rounded-lg border border-line-strong bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent-soft disabled:bg-surface-sunken; }

@@ -69,7 +69,8 @@ export default function CreatePage() {
 
   return (
     <div className="space-y-6">
-      <Section title="Create a project" description="Upload original media or import an authorised direct URL. Every upload is validated with FFprobe before processing starts." />
+      <Section
+        as="h1" title="Create a project" description="Upload original media or import an authorised direct URL. Every upload is validated with FFprobe before processing starts." />
 
       {missing.length > 0 ? (
         <ErrorState

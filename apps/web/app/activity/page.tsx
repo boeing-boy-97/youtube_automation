@@ -12,10 +12,11 @@ export default function ActivityPage() {
   return (
     <div className="space-y-5">
       <Section
+        as="h1"
         title="Activity log"
         description="Append-only audit trail. Every mutation writes a row with the acting user, IP and request id."
         action={
-          <select className="input !w-auto !py-1.5 text-[13px]" value={limit} onChange={(event) => setLimit(Number(event.target.value))}>
+          <select aria-label="Number of events to show" className="input !w-auto !py-1.5 text-[13px]" value={limit} onChange={(event) => setLimit(Number(event.target.value))}>
             {[50, 100, 200, 500].map((value) => <option key={value} value={value}>Last {value}</option>)}
           </select>
         }

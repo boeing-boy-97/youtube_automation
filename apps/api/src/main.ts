@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import './load-env';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
@@ -17,6 +18,10 @@ async function bootstrap() {
 
   app.use(cookieParser());
   app.set('trust proxy', 1);
+  app.disable('x-powered-by');
+  // JSON compresses; media does not (compression's own filter consults `compressible`, which
+  // rejects video/audio/image types, and byte ranges must never be re-encoded).
+  app.use(compression({ threshold: 1024 }));
   app.useBodyParser('json', { limit: '2mb' });
   app.useBodyParser('urlencoded', { limit: '2mb', extended: true });
 

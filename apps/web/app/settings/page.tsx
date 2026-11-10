@@ -124,11 +124,11 @@ export default function SettingsPage() {
                   system.data.readiness.components.storage,
                   ...system.data.readiness.components.integration,
                 ].map((component) => (
-                  <li key={component.component} className="flex items-center justify-between gap-3">
-                    <span className="text-ink-soft">{component.component}</span>
-                    <span className="flex items-center gap-2">
-                      <span className="max-w-[190px] truncate text-xs text-ink-faint">{component.message}</span>
-                      <StatusBadge value={component.status} />
+                  <li key={component.component} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <span className="min-w-0 text-ink-soft">{component.component}</span>
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="min-w-0 max-w-[190px] truncate text-xs text-ink-faint">{component.message}</span>
+                      <span className="shrink-0"><StatusBadge value={component.status} /></span>
                     </span>
                   </li>
                 ))
@@ -156,7 +156,7 @@ export default function SettingsPage() {
             {data.missingForPublishing.length > 0 ? (
               <p className="pt-1 text-xs text-caution">Publishing keys missing: {data.missingForPublishing.join(', ')}</p>
             ) : null}
-            <Link href="/accounts" className="inline-block pt-1 text-xs font-medium text-accent hover:underline">Manage accounts →</Link>
+            <Link href="/accounts" className="inline-flex min-h-[24px] items-center pt-1 text-xs font-medium text-accent hover:underline">Manage accounts →</Link>
           </div>
         </Card>
       </div>
@@ -227,7 +227,7 @@ export default function SettingsPage() {
           </div>
           {group === 'Subtitles' ? (
             <p className="border-t border-line px-5 py-3 text-xs text-ink-soft">
-              Need a new style? <Link href="/brand" className="font-medium text-accent hover:underline">Create a subtitle preset in Brand studio</Link>.
+              Need a new style? <Link href="/brand" className="inline-flex min-h-[24px] items-center font-medium text-accent hover:underline">Create a subtitle preset in Brand studio</Link>.
             </p>
           ) : null}
         </Card>

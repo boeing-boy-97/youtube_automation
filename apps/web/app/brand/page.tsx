@@ -100,7 +100,8 @@ export default function BrandPage() {
 
   return (
     <div className="space-y-5">
-      <Section title="Brand studio" description="Brand profiles drive AI metadata tone; subtitle presets drive burned-in captions. Both are explicit workspace records — nothing is inferred." />
+      <Section
+        as="h1" title="Brand studio" description="Brand profiles drive AI metadata tone; subtitle presets drive burned-in captions. Both are explicit workspace records — nothing is inferred." />
 
       {!isOperator ? (
         <Card className="px-5 py-4">

@@ -9,12 +9,12 @@ export function Card({ children, className }: { children: ReactNode; className?:
 
 export function CardHeader({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
-      <div>
+    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b border-line px-4 py-3.5 sm:px-5 sm:py-4">
+      <div className="min-w-0">
         <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
         {description ? <p className="mt-0.5 text-[13px] text-ink-soft">{description}</p> : null}
       </div>
-      {action}
+      {action ? <div className="shrink-0 whitespace-nowrap">{action}</div> : null}
     </div>
   );
 }
@@ -27,8 +27,16 @@ const badgeTones: Record<string, string> = {
   danger: 'bg-danger-soft text-danger',
 };
 
-export function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: keyof typeof badgeTones }) {
-  return <span className={clsx('badge', badgeTones[tone])}>{children}</span>;
+export function Badge({
+  children,
+  tone = 'neutral',
+  className,
+}: {
+  children: ReactNode;
+  tone?: keyof typeof badgeTones;
+  className?: string;
+}) {
+  return <span className={clsx('badge', badgeTones[tone], className)}>{children}</span>;
 }
 
 const statusTones: Record<string, keyof typeof badgeTones> = {
@@ -189,15 +197,34 @@ export function Toast({ tone = 'neutral', children, onClose }: { tone?: 'neutral
   );
 }
 
-export function Section({ title, description, children, action }: { title: string; description?: string; children?: ReactNode; action?: ReactNode }) {
+export function Section({
+  title,
+  description,
+  children,
+  action,
+  as: Heading = 'h2',
+  actionClassName,
+}: {
+  title: string;
+  description?: string;
+  children?: ReactNode;
+  action?: ReactNode;
+  /** The first Section on a page is that page's document heading (`h1`); the rest stay `h2`. */
+  as?: 'h1' | 'h2';
+  actionClassName?: string;
+}) {
+  const headingClass =
+    Heading === 'h1'
+      ? 'text-[19px] font-semibold leading-tight tracking-tight text-ink sm:text-[21px]'
+      : 'text-[17px] font-semibold tracking-tight text-ink';
   return (
     <section className="space-y-3">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <h2 className="text-[17px] font-semibold tracking-tight text-ink">{title}</h2>
-          {description ? <p className="mt-0.5 text-[13px] text-ink-soft">{description}</p> : null}
+      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0">
+          <Heading className={headingClass}>{title}</Heading>
+          {description ? <p className="mt-1 max-w-[70ch] text-[13px] leading-relaxed text-ink-soft">{description}</p> : null}
         </div>
-        {action}
+        {action ? <div className={clsx('shrink-0', actionClassName)}>{action}</div> : null}
       </div>
       {children}
     </section>

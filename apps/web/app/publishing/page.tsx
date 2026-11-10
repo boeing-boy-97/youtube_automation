@@ -18,7 +18,8 @@ export default function PublishingPage() {
 
   return (
     <div className="space-y-5">
-      <Section title="Publishing manager" description="One job per platform and clip. Idempotency keys prevent duplicate uploads; ambiguous timeouts are reconciled from the platform." />
+      <Section
+        as="h1" title="Publishing manager" description="One job per platform and clip. Idempotency keys prevent duplicate uploads; ambiguous timeouts are reconciled from the platform." />
 
       {history.published.length === 0 && inflight === 0 && failed === 0 ? (
         <ErrorState message="No account has publishing enabled yet. Connect an account and enable publishing to queue clips." />
@@ -36,7 +37,41 @@ export default function PublishingPage() {
         {jobs.items.length === 0 ? (
           <EmptyState title="Nothing queued" description="Select a clip in the library and create publishing jobs for your connected platforms." action={<Link href="/clips" className="btn-primary">Go to clip library</Link>} />
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <ul className="divide-y divide-line sm:hidden">
+            {jobs.items.map((job) => (
+              <li key={job.id} className="space-y-1.5 px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-medium text-ink">{job.clip.title}</p>
+                    <p className="truncate text-xs text-ink-faint">
+                      {job.platform} · {job.clip.durationKind}s · {job.account.displayName}
+                    </p>
+                  </div>
+                  <span className="shrink-0"><StatusBadge value={job.status} /></span>
+                </div>
+                <p className="truncate text-xs text-ink-soft">
+                  {job.externalUrl ? 'Published' : `${job.errorCode ? `${job.errorCode}: ` : ''}${job.errorMessage ?? job.operation.replaceAll('_', ' ').toLowerCase()}`}
+                  {' · '}
+                  {job.scheduledFor ? formatRelative(job.scheduledFor) : 'immediate'} · attempt {job.attempt}/{job.maxAttempts}
+                </p>
+                <div className="flex items-center gap-2">
+                  {job.externalUrl ? (
+                    <a href={job.externalUrl} target="_blank" rel="noreferrer" className="btn-secondary !px-2.5 !py-1 text-xs">
+                      Open post
+                    </a>
+                  ) : null}
+                  {['FAILED', 'RETRYING'].includes(job.status) ? (
+                    <button type="button" className="btn-secondary !px-2.5 !py-1 text-xs" onClick={() => retry.mutate(job.id)} disabled={retry.isPending}>
+                      Retry
+                    </button>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          <div className="hidden overflow-x-auto sm:block">
             <table className="table w-full">
               <thead>
                 <tr><th>Clip</th><th>Platform</th><th>Status</th><th>Attempt</th><th>Detail</th><th>Scheduled</th><th></th></tr>
@@ -71,6 +106,7 @@ export default function PublishingPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </Card>
 

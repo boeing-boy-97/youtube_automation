@@ -69,7 +69,8 @@ function AccountsContent() {
 
   return (
     <div className="space-y-5">
-      <Section title="Connected accounts" description="OAuth tokens are encrypted at rest with AES-256-GCM and never returned to the browser." />
+      <Section
+        as="h1" title="Connected accounts" description="OAuth tokens are encrypted at rest with AES-256-GCM and never returned to the browser." />
 
       {oauth === 'error' ? <ErrorState message={`Authorization failed: ${reason ?? 'unknown error'}`} /> : null}
       {notice ? <ErrorState message={notice} /> : null}

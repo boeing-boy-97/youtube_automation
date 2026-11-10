@@ -1,8 +1,14 @@
 # Verification report
 
-Date: **2026-11-09** (Asia/Kolkata). Environment: single-node Linux sandbox — PostgreSQL 17.11,
-Redis 7, Node 20.20.2, Python 3.13.16, FFmpeg 7.1.5. Nothing below is projected or estimated: every
-result is a command that was executed and its actual output.
+Date: **2026-11-09**, re-run **2026-11-10** after the frontend/backend hardening pass (Asia/Kolkata).
+Environment: single-node Linux sandbox — PostgreSQL 17.11, Redis 7, Node 20.20.2, Python 3.13.16,
+FFmpeg 7.1.5. Nothing below is projected or estimated: every result is a command that was executed
+and its actual output.
+
+> **Latest round (2026-11-10):** mobile/tablet navigation, responsive tables, accessible headings and
+> tap targets, gzip + cache validators on media, orphaned-media diagnostics, a per-role worker
+> supervisor, and a real browser audit (`tests/e2e/ui_responsive.py`, 165 checks × 5 viewports). The
+> scoreboard at the bottom of this file is the current one.
 
 > **Audit round note (2026-11-09):** a later independent audit re-tested this system from scratch and
 > found nine defects that this report had not caught — including byte-range seeking, out-of-order
@@ -107,6 +113,7 @@ Measured on 2026-11-09 against the running stack (see "Verification pass" below 
 | Authorization matrix | `.venv/bin/python tests/e2e/authorization_matrix.py` | **27/27** (also run inside scenario 18) |
 | Logic probes (adversarial) | `.venv/bin/python tests/e2e/logic_probes.py` | **40/40** |
 | Health smoke | `bash infrastructure/scripts/healthcheck.sh` | api / ai-engine / video-processor 200, postgres + redis healthy |
+| Browser UI audit (5 viewports × 10 routes) | `python3 tests/e2e/ui_responsive.py` | **165 checks, 0 failures** |
 | Python module import sweep | import all 17 modules under `services/*/app/` | clean |
 
 ## Verification pass — 2026-11-09 (code and logic audit)
@@ -247,3 +254,57 @@ npm run openapi:export
 
 The integration suite stops the workers (it asserts queue and lease behaviour); restart them with
 `node dist/workers/{pipeline,render,publish,scheduler,recovery}.worker.js` from `apps/api`.
+
+
+## Verification pass — 2026-11-10 (full audit, hardened frontend and backend)
+
+Scope: every workspace type-checked, every suite re-run against the live stack, and the dashboard
+audited in a real headless Chromium at five viewports. Everything below was executed, not asserted.
+
+### Defects found and fixed
+
+| # | Defect | Evidence before | Fix |
+| --- | --- | --- | --- |
+| 1 | No navigation at all below `lg` — the sidebar is `hidden lg:flex` and nothing replaced it | phone viewport had no reachable route other than the current one | slide-over drawer + 5-slot bottom bar, focus trap, Escape/route-change close, scroll lock |
+| 2 | Dashboard and clip library scrolled sideways on phones | `window.scrollX` reached 206 px at 360 px wide | `min-w-0` cards, `overflow-wrap: break-word` instead of `anywhere`, `block truncate` links |
+| 3 | `/admin` and `/settings` health rows overflowed the viewport | 73 px and 48 px of horizontal scroll at 360 px | `flex-wrap` + `min-w-0` + `shrink-0` badges |
+| 4 | Nine of ten pages had no `h1` (a11y and SEO) | axe-style probe reported "no h1 on page" | `Section` gained an `as` prop; every page's first section is its `h1` |
+| 5 | Text-only links were 16 px tall — below the 24 px WCAG 2.5.8 target | "View all", "Details", filenames, "Manage accounts" | `inline-flex min-h-[24px]` / `block … py-1` on every such link |
+| 6 | `/activity`'s page-size `<select>` had no accessible name | probe: "unlabelled field: SELECT" | explicit `aria-label` |
+| 7 | Jobs and publishing forced a sideways scroll at phone widths | table cut off at `STATUS` column | real card list below `sm`, table from `sm` up; secondary columns hidden on small screens |
+| 8 | A missing stored object returned **500 INTERNAL_ERROR** from the media route | `ENOENT … stat '…/30s-5768941567ae.mp4'` | `MEDIA_NOT_FOUND` 404, and the player renders an honest "Preview unavailable" state |
+| 9 | Media responses carried no cache validator; every seek re-downloaded the file | no `etag`, no `cache-control` on the ranged path | strong ETag + `private, max-age=86400, immutable`, `304` verified at 0 bytes |
+| 10 | No compression on JSON responses | `/api/system/overview` sent uncompressed | `compression` 1.8.2, threshold 1 KiB; gzip confirmed, video confirmed **not** re-encoded |
+| 11 | `content-type` on streamed media was hard-coded `video/mp4` even for `.mov`/`.webm`/`.m4a` | — | extension → MIME map, `octet-stream` fallback |
+| 12 | Workers: one role exiting killed all five | `wait -n` then shutdown | per-role restart with 2→30 s backoff and a 6-failures/5-min escalation; proven live when scenario 19 killed the render worker and it came back on its own |
+| 13 | Diagnostics never looked at storage, so "clip 404s" was invisible until a user hit it | diagnostics had 6 findings, none about media | new `media.integrity` finding (bounded sample of 25 variants + 10 sources), surfaced on `/admin` |
+| 14 | The E2E workflow asserted against `clips[0]` — someone else's leftover | failed with 404 when a stale clip was newest | asserts on `?jobId=<this run>` |
+| 15 | Scenario 19 restarted the render worker with a bare `node`, without `.env` | timed out after 900 s | restarts it the way the stack does (`set -a && . ./.env`) |
+| 16 | The E2E fixtures were not reproducible (a hard-coded `/home/user/testdata` path with no generator) | `test video not found` | `scripts/make-testdata.sh` narrates `tests/fixtures/speech-script.txt` with espeak-ng and muxes it onto a test pattern |
+
+### Test results (2026-11-10)
+
+| Suite | Result |
+| --- | --- |
+| Typecheck, 6 workspaces | clean |
+| Unit (`npm run test:unit`) | **54 passed**, 6 files |
+| Integration (`npm run test:integration`) | **14 passed** |
+| Python renderer (`npm run test:python`) | **13 passed** |
+| Workflow E2E (`tests/e2e/full_workflow.py`) | **PASSED** — upload → transcript (11 segments) → selection → render → download, 404×720 h264/aac 28.63 s, 12.1 MB verified with ffprobe |
+| Scenarios (`tests/e2e/scenarios.py`) | **45/45** checks, 19 scenarios |
+| Authorization matrix | **27/27** |
+| Logic probes | **40/40** |
+| Browser UI audit (`tests/e2e/ui_responsive.py`) | **165 checks, 0 failures** (360, 390, 768, 1024, 1440 px × 10 routes + drawer behaviour) |
+| Media protocol | `200` + ETag + `cache-control: private, max-age=86400, immutable`; `304` on `If-None-Match` (0 bytes); `206` with `content-range: bytes 0-2047/12114378` |
+| Compression | `content-encoding: gzip` on a large JSON body, absent on `video/mp4` (range requests must never be re-encoded) |
+
+### Deliberate behaviours confirmed (not bugs)
+
+- A source with no speech fails with `ANALYSIS_REJECTED`: "Transcription produced no speech
+  segments. The source may be silent or music-only, so no highlight can be identified honestly."
+  The fixtures therefore contain real narrated speech.
+- Rendered height never exceeds the source height (no upscaling): a 960×540 source yields a 304×540
+  vertical clip, and the renderer logs the downgrade.
+- `MEDIA_NOT_FOUND` rather than a 500 when a database row outlives its object.
+
+See `docs/SECURITY-NOTES.md` for the dependency (audit) triage and the planned upgrade queue.

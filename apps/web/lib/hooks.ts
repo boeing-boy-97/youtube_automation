@@ -313,3 +313,39 @@ export function useSystemOverview(enabled = true) {
     retry: false,
   });
 }
+
+export type DiagnosticSeverity = 'ok' | 'info' | 'warning' | 'critical';
+
+export interface DiagnosticFinding {
+  id: string;
+  title: string;
+  severity: DiagnosticSeverity;
+  detail: string;
+  action: string;
+  count?: number;
+  oldestSeconds?: number;
+  samples?: Array<Record<string, unknown>>;
+}
+
+export interface DiagnosticsReport {
+  generatedAt: string;
+  version: string;
+  uptimeSeconds: number;
+  worst: DiagnosticSeverity;
+  findings: DiagnosticFinding[];
+}
+
+/**
+ * The diagnostics endpoint answers "what needs attention right now" with findings that each carry
+ * a severity, a measured detail and a recommended action. Polled slower than the overview because
+ * every call re-checks storage object existence.
+ */
+export function useDiagnostics(enabled = true) {
+  return useQuery({
+    queryKey: ['diagnostics'],
+    queryFn: () => api<DiagnosticsReport>('/api/system/diagnostics'),
+    refetchInterval: 60_000,
+    enabled,
+    retry: false,
+  });
+}

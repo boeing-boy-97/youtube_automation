@@ -39,7 +39,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-surface-muted px-4">
+    <div className="flex min-h-[100dvh] items-center justify-center bg-surface-muted px-4 py-8 sm:py-12">
       <div className="w-full max-w-[420px]">
         <div className="mb-6 flex items-center gap-2.5">
           <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-ink text-sm font-bold text-white">CF</span>
