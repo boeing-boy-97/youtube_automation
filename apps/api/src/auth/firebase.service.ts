@@ -66,6 +66,33 @@ export class FirebaseService {
     return this.app !== null;
   }
 
+  /** True when the browser has enough to start the Google popup. */
+  get webConfigured(): boolean {
+    return this.webConfig() !== null;
+  }
+
+  /**
+   * Google sign-in works end to end only when *both* halves exist: the browser needs the public web
+   * config, the API needs a service account to verify what comes back. Half a deployment is a
+   * button that opens Google and then cannot sign anyone in, so it is reported, never implied.
+   */
+  get fullyConfigured(): boolean {
+    return this.configured && this.webConfigured;
+  }
+
+  /** A sentence naming exactly what is missing, or null when nothing is. */
+  get missing(): string | null {
+    if (this.configurationError) return this.configurationError;
+    if (!this.configured && !this.webConfigured) return 'Neither half of Firebase is configured on this API.';
+    if (!this.configured) {
+      return 'The browser config is set but the API has no service account, so it cannot verify Google tokens. Set FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY (docs/FIREBASE-AUTH.md step 5), then restart the API.';
+    }
+    if (!this.webConfigured) {
+      return 'The API can verify Google tokens but the browser has no web config. Set FIREBASE_WEB_API_KEY (and FIREBASE_WEB_APP_ID) from Firebase → Project settings → General → Your apps.';
+    }
+    return null;
+  }
+
   get configurationError(): string | null {
     if (!this.initialized) this.init();
     return this.initError;

@@ -109,13 +109,18 @@ export function loadEnv(): AppEnv {
   if (env.STORAGE_DRIVER === 'local' && (!env.STORAGE_LOCAL_ROOT || !env.STORAGE_LOCAL_PUBLIC_BASE_URL)) {
     throw new Error('STORAGE_DRIVER=local requires STORAGE_LOCAL_ROOT and STORAGE_LOCAL_PUBLIC_BASE_URL');
   }
-  const firebaseServer = ['FIREBASE_PROJECT_ID', 'FIREBASE_CLIENT_EMAIL', 'FIREBASE_PRIVATE_KEY'] as const;
-  const firebasePresent = firebaseServer.filter((key) => Boolean(env[key]));
-  if (firebasePresent.length > 0 && firebasePresent.length < firebaseServer.length && !env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+  // The public web config needs only FIREBASE_PROJECT_ID, so a project id on its own is a legitimate
+  // (browser-configured, verifier-missing) deployment. The credential pair must not be split.
+  const hasClientEmail = Boolean(env.FIREBASE_CLIENT_EMAIL);
+  const hasPrivateKey = Boolean(env.FIREBASE_PRIVATE_KEY);
+  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON && hasClientEmail !== hasPrivateKey) {
     throw new Error(
-      `Firebase Auth is half-configured (${firebasePresent.join(', ')} set). Provide all three of ` +
-        'FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY, or FIREBASE_SERVICE_ACCOUNT_JSON, or none.',
+      'Firebase Auth is half-configured: FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY must be set together ' +
+        '(or provide the whole thing as FIREBASE_SERVICE_ACCOUNT_JSON, or neither for password-only login).',
     );
+  }
+  if (hasClientEmail && hasPrivateKey && !env.FIREBASE_PROJECT_ID) {
+    throw new Error('Firebase Auth has credentials but no FIREBASE_PROJECT_ID — add the project id (Firebase console → Project settings).');
   }
   if (env.STORAGE_DRIVER === 's3' && (!env.S3_BUCKET || !env.S3_ACCESS_KEY_ID || !env.S3_SECRET_ACCESS_KEY || !env.S3_REGION)) {
     throw new Error('STORAGE_DRIVER=s3 requires S3_BUCKET, S3_REGION, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY');

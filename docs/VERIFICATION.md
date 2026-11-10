@@ -362,6 +362,24 @@ paths are what can be proven end to end — those are the ones that break silent
 Full re-run after the change: unit **58/58**, integration **22/22**, browser UI audit **165 checks /
 0 failures**, `eslint .` clean, `next build` clean, `tsc` clean in all workspaces.
 
+### Firebase: wiring a real project (an existing Firebase project) — 2026-11-09
+
+The web config alone does **not** make Google sign-in work: the browser can obtain an ID token, but
+only a service account lets the API verify it. That state used to be reported as a flat
+`enabled: false`, which reads like "the feature is off" rather than "you are one step away". The
+provider response now reports the two halves separately, and the login screen repeats the precise
+message.
+
+| Check | Result |
+| --- | --- |
+| `.env` with only the web config (`FIREBASE_PROJECT_ID` + `FIREBASE_WEB_*`) | API **boots** (a project id alone is a valid web-config-only deployment — the old guard would have refused) |
+| `GET /api/auth/providers` | `webConfigured:true`, `verifyConfigured:false`, `enabled:false`, `error:"The browser config is set but the API has no service account…"` |
+| Login screen with that config | email form works, Google button disabled, note names the service account and `docs/FIREBASE-AUTH.md step 5` |
+| Split credentials (`CLIENT_EMAIL` without `PRIVATE_KEY`) | API refuses to boot: "must be set together" |
+| Verifier without web config | `error:"The API can verify Google tokens but the browser has no web config…"` |
+| `scripts/check-firebase.sh` against the real key | probe of `accounts:createAuthUri` returned `CONFIGURATION_NOT_FOUND` → script concludes **Firebase Authentication has never been initialised in that project** and prints the Get started path; step 2 correctly reports `webConfigured=true verifyConfigured=false enabled=false` |
+| Suites after the change | unit **60/60**, integration **22/22**, `firebase_auth.py` **18/18**, UI audit **165 checks / 0 failures**, `tsc` clean, `next build` clean |
+
 Still requires the user's Firebase project: steps 1–9 of `docs/FIREBASE-AUTH.md`. Nothing below can
 be verified without real credentials — a real Google account signing in, and Firebase's own
 `auth/unauthorized-domain` behaviour on the deployed domain.

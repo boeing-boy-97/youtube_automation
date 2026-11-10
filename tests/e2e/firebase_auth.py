@@ -26,22 +26,30 @@ def api_contract() -> None:
     results.record("password sign-in is always advertised", providers.get("password") is True, json.dumps(providers.get("password")))
     firebase = providers.get("firebase") or {}
     results.record(
-        "firebase block is always present (enabled flag, never a missing key)",
-        "enabled" in firebase and "config" in firebase,
+        "firebase block reports both halves separately",
+        {"enabled", "config", "verifyConfigured", "webConfigured"} <= set(firebase),
         json.dumps(sorted(firebase.keys())),
     )
-    if firebase.get("enabled"):
-        config = firebase.get("config") or {}
+    # The public web config may exist without a verifier (that is a real, describable state), but it
+    # must never carry a secret and must never be reported as "enabled".
+    config = firebase.get("config") or {}
+    results.record(
+        "the served web config holds no secret",
+        "PRIVATE KEY" not in json.dumps(firebase) and "private_key" not in json.dumps(firebase),
+        f"keys={sorted(config.keys())}",
+    )
+    if firebase.get("webConfigured"):
         results.record(
-            "when enabled, the public web config is served and holds no secret",
-            bool(config.get("apiKey")) and "PRIVATE KEY" not in json.dumps(config),
-            json.dumps(sorted(config.keys())),
+            "a web config present in the browser is a complete-enough public config",
+            bool(config.get("apiKey")) and bool(config.get("projectId")),
+            f"project={config.get('projectId')}",
         )
-    else:
+    if not firebase.get("enabled"):
+        message = str(firebase.get("error") or "")
         results.record(
-            "when disabled, no half-built web config is handed to the browser",
-            firebase.get("config") is None,
-            f"config={firebase.get('config')!r}",
+            "when the button cannot work, the response says which half is missing",
+            ("service account" in message) or ("web config" in message) or ("Neither half" in message),
+            message[:140],
         )
 
     # A token that cannot be verified must be an explicit, actionable refusal.

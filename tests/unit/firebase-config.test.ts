@@ -4,6 +4,12 @@
  * every Google login at 3am.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { generateKeyPairSync } from 'node:crypto';
+
+/** A real PEM, so the failure being tested is the missing web config — not a parse error. */
+const TEST_PRIVATE_KEY = generateKeyPairSync('rsa', { modulusLength: 2048 })
+  .privateKey.export({ type: 'pkcs8', format: 'pem' })
+  .toString();
 
 const ENV_KEYS = [
   'FIREBASE_PROJECT_ID',
@@ -59,6 +65,7 @@ describe('Firebase configuration', () => {
     const { env } = await loadModules();
     expect(env.FIREBASE_ALLOW_NEW_USERS).toBe(false);
     expect(env.FIREBASE_REQUIRE_VERIFIED_EMAIL).toBe(true);
+    await loadModules();
     const { FirebaseService } = await import('../../apps/api/src/auth/firebase.service');
     const service = new FirebaseService();
     expect(service.configured).toBe(false);
@@ -66,11 +73,42 @@ describe('Firebase configuration', () => {
     expect(service.configurationError).toBeNull();
   });
 
-  it('refuses to boot when only part of the service account is present', async () => {
+  it('refuses to boot when the credential pair is split', async () => {
     process.env.FIREBASE_PROJECT_ID = 'demo-project';
+    process.env.FIREBASE_CLIENT_EMAIL = 'svc@demo-project.iam.gserviceaccount.com';
     const { env } = await loadModules();
     expect(() => env.FIREBASE_PROJECT_ID).toThrow(/half-configured/i);
-    expect(() => env.FIREBASE_PROJECT_ID).toThrow(/FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY/);
+    expect(() => env.FIREBASE_PROJECT_ID).toThrow(/FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY must be set together/);
+  });
+
+  it('accepts a project id on its own: that is the public web config without a verifier', async () => {
+    process.env.FIREBASE_PROJECT_ID = 'demo-project';
+    process.env.FIREBASE_WEB_API_KEY = 'web-api-key';
+    const { env } = await loadModules();
+    expect(env.FIREBASE_PROJECT_ID).toBe('demo-project');
+    expect(env.FIREBASE_CLIENT_EMAIL).toBeUndefined();
+    await loadModules();
+    const { FirebaseService } = await import('../../apps/api/src/auth/firebase.service');
+    const service = new FirebaseService();
+    expect(service.webConfigured).toBe(true);
+    expect(service.configured).toBe(false);
+    expect(service.fullyConfigured).toBe(false);
+    // And it says which half is missing instead of a generic "not configured".
+    expect(service.missing).toMatch(/no service account/i);
+  });
+
+  it('says the browser config is missing when only the verifier exists', async () => {
+    process.env.FIREBASE_PROJECT_ID = 'demo-project';
+    process.env.FIREBASE_CLIENT_EMAIL = 'svc@demo-project.iam.gserviceaccount.com';
+    process.env.FIREBASE_PRIVATE_KEY = TEST_PRIVATE_KEY;
+    delete process.env.FIREBASE_WEB_API_KEY;
+    const { env } = await loadModules(); // drop the previous test's cached config
+    expect(env.FIREBASE_WEB_API_KEY).toBeUndefined();
+    await loadModules();
+    const { FirebaseService } = await import('../../apps/api/src/auth/firebase.service');
+    const service = new FirebaseService();
+    expect(service.webConfigured).toBe(false);
+    expect(service.missing).toMatch(/browser has no web config/i);
   });
 
   it('serves the public web config from the API, without the private key', async () => {
@@ -79,6 +117,8 @@ describe('Firebase configuration', () => {
     process.env.FIREBASE_PRIVATE_KEY = '-----BEGIN PRIVATE KEY-----\\nMIIB\\n-----END PRIVATE KEY-----\\n';
     process.env.FIREBASE_WEB_API_KEY = 'web-api-key';
     process.env.FIREBASE_WEB_APP_ID = '1:2:web:3';
+    await loadModules();
+    await loadModules();
     const { FirebaseService } = await import('../../apps/api/src/auth/firebase.service');
     const service = new FirebaseService();
     const config = service.webConfig();
@@ -87,6 +127,8 @@ describe('Firebase configuration', () => {
   });
 
   it('reports a verification attempt as unconfigured instead of throwing a 500', async () => {
+    await loadModules();
+    await loadModules();
     const { FirebaseService } = await import('../../apps/api/src/auth/firebase.service');
     const service = new FirebaseService();
     await expect(service.verifyIdToken('x'.repeat(80))).rejects.toMatchObject({

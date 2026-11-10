@@ -50,16 +50,18 @@ export class AuthController {
   @SkipCsrf()
   @ApiOperation({ summary: 'Which sign-in methods this deployment offers (drives the login screen)' })
   providers() {
-    const firebaseConfigured = this.firebase.configured;
     return {
       password: true,
       selfRegistrationEnabled: env.ALLOW_SELF_REGISTRATION,
       firebase: {
-        enabled: firebaseConfigured,
+        // `enabled` means "the button will actually complete a sign-in", not "a project id exists".
+        enabled: this.firebase.fullyConfigured,
+        verifyConfigured: this.firebase.configured,
+        webConfigured: this.firebase.webConfigured,
         // Public by design: the same values ship in every Firebase web app's JS bundle.
-        config: firebaseConfigured ? this.firebase.webConfig() : null,
+        config: this.firebase.webConfig(),
         allowNewUsers: env.FIREBASE_ALLOW_NEW_USERS,
-        error: firebaseConfigured ? null : this.firebase.configurationError,
+        error: this.firebase.missing,
       },
     };
   }

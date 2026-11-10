@@ -20,6 +20,42 @@ the audit log, 20+ tables with foreign keys). Firebase here is the *identity pro
 it is genuinely best at — and the database stays relational. If you later want Firestore for mobile
 realtime dashboards, it can mirror the `User` collection without touching the rest.
 
+## Already have a project? Check where it stands first
+
+Paste the web config into `.env` (it is public — it ships inside every Firebase site, so pasting it
+in a chat or a repo is not a leak), then run:
+
+```bash
+./scripts/check-firebase.sh
+```
+
+It asks Google three questions and prints the one thing left to do. Real output from a project whose
+web config was set but whose Authentication had never been initialised:
+
+```
+1) Is Firebase Authentication initialised?
+   ✗ Firebase Authentication has never been set up in this project.
+     Fix: Firebase console → your project → Build → Authentication → Get started …
+2) Can the API verify what Google issues? (needs a service account)
+   webConfigured=true  verifyConfigured=false  enabled=false
+   ✗ the browser is configured, the API cannot verify tokens yet.
+```
+
+The `CONFIGURATION_NOT_FOUND` answer that script translates is the single most common surprise:
+having a Firebase project, a web app and an API key does **not** mean Authentication is switched on —
+that needs one click on **Get started**, and only then does **Google** appear as a provider.
+
+> `firebase/analytics` from the console snippet is deliberately not imported: this app has no
+> third-party analytics, and the login page should not phone Google twice to sign you in.
+
+**What the API needs vs what the browser needs**
+
+| Value | Where it comes from | Secret? | Goes in |
+| --- | --- | --- | --- |
+| `FIREBASE_PROJECT_ID`, `FIREBASE_WEB_API_KEY`, `FIREBASE_WEB_AUTH_DOMAIN`, `FIREBASE_WEB_APP_ID` | Project settings → General → Your apps | No | `.env` / API env |
+| `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` | Project settings → Service accounts → Generate new private key | **Yes** | `.env` / API env — never in chat, never in git |
+| `storageBucket`, `messagingSenderId`, `measurementId` | the console snippet | No | **not used** — this project stores media in R2/S3 |
+
 ---
 
 ## The process, click by click
