@@ -16,8 +16,12 @@
     "packages/platform-connectors"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build": "npm run build:packages && npm run build:apps",
+    "build:packages": "npm run build -w @clipforge/shared-types -w @clipforge/validation -w @clipforge/platform-connectors -w @clipforge/database",
+    "build:apps": "npm run build -w @clipforge/api -w @clipforge/web",
+    "typecheck": "npm run build:packages && npm run typecheck --workspaces --if-present",
+    "verify:structure": "bash scripts/check-structure.sh",
+    "verify": "npm run verify:structure && npm run build && npm run typecheck && npm run lint && npm run test:unit",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test:unit",
     "db:generate": "npm run generate -w @clipforge/database",
@@ -36,7 +40,8 @@
     "test:python": ".venv/bin/python tests/python/test_render_validation.py",
     "verify:health": "bash infrastructure/scripts/healthcheck.sh",
     "verify:pipeline": ".venv/bin/python infrastructure/scripts/verify-pipeline.py",
-    "openapi:export": "curl -fsS http://127.0.0.1:4000/api/docs/openapi.json -o docs/openapi.json"
+    "openapi:export": "curl -fsS http://127.0.0.1:4000/api/docs/openapi.json -o docs/openapi.json",
+    "pretest:unit": "npm run build:packages"
   },
   "devDependencies": {
     "typescript": "5.7.2",

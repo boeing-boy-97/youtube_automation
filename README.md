@@ -131,3 +131,15 @@ screens — and that is enforced by the browser audit rather than by review.
 
 No cloud deployment is claimed: the compose stack is authored and validated, but this sandbox has
 no Docker daemon, so the verified environment is the local process stack described above.
+
+## Checking that the structure still holds
+
+```bash
+npm run verify             # structure + build + typecheck + lint + unit tests, in that order
+npm run build              # packages in dependency order, then apps
+npm run typecheck
+npm run test:unit
+```
+
+`docs/FOLDER-STRUCTURE.md` explains where every kind of file goes, and the two flows (a request, and
+a job from upload to published clip) that run through the tree.

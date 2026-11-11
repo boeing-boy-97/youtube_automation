@@ -399,6 +399,38 @@ build reads `api-target.json` and inlines `https://clipforge-api.onrender.com` i
 `CLIPFORGE_API_TARGET`; a local build ignores the file and inlines `http://127.0.0.1:4000`; the local
 stack still passes UI **165/0** and `firebase_auth` **18/18**.
 
+### Structure, flow and a clean build (2026-11-09)
+
+The tree was audited against `docs/FOLDER-STRUCTURE.md` and then made self-checking. Three real
+defects were found, all of which produced errors for anyone starting from a clean checkout:
+
+| Defect | Symptom | Fix |
+| --- | --- | --- |
+| `npm run build` ran every workspace in parallel | **141 TS errors** (`Cannot find module '@clipforge/database'`) on a clean tree, because the API compiled before the packages existed | `build` = `build:packages` (shared-types → validation → platform-connectors → database) then `build:apps`; `typecheck` builds the packages first; `pretest:unit` does too |
+| `docs/DOCUMENT-INDEX.md` was referenced by `FOLDER-STRUCTURE.md` but never existed | a promise the repository did not keep | written, and the checker now fails if a document is unindexed or a `docs/…` reference dangles |
+| `packages/` and `docs/` had no entry README | a reader had to guess which package to open | `packages/README.md` (ownership + rules), `docs/README.md` (by intent), plus rule 2 in the checker |
+
+Enforcement, so this cannot drift again: `scripts/check-structure.sh` (77 checks, 11 rule groups:
+required areas, area READMEs, tidy root, real workspace packages, wired controllers/modules, tests
+only in `tests/`, import direction, complete Python services, deployment paths, file naming,
+resolving docs). Wired as `npm run verify:structure`, and `npm run verify` chains it with build,
+typecheck, lint and unit tests.
+
+Verified from an empty `dist/` and `.next/`:
+
+| Command | Result |
+| --- | --- |
+| `npm run verify:structure` | **77 passed, 0 failed** — `STRUCTURE: OK` |
+| `npm run build` | **rc 0, 0 TS errors** (was rc 2, 141 errors) |
+| `npm run typecheck` | **rc 0, 0 errors** |
+| `npm run lint` | **rc 0, 0 problems** |
+| `npm run test:unit` | **7 files, 60 tests passed** |
+| `npm run verify` (all of the above) | **rc 0** |
+| `python3 -m compileall services` | **rc 0** |
+
+Not verified here: `test:integration`, `test:e2e` and `test:python` need Postgres, Redis and a
+`.venv`; this sandbox had neither after the workspace reset. They are covered in the rows above.
+
 ### Firebase: wiring a real project (an existing Firebase project) — 2026-11-09
 
 The web config alone does **not** make Google sign-in work: the browser can obtain an ID token, but
