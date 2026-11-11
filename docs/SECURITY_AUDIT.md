@@ -26,7 +26,7 @@ No finding below is speculative — each names the file or the observed response
 | Audit trail | `AuditLog` rows for auth, config, publishing, brand assets; never contains OTP codes (asserted) | good |
 | Error surface | uniform envelope; provider/DB internals replaced by codes; `requestId` returned for support | good |
 | SQL injection | Prisma only, no raw string interpolation of user input except `$queryRaw` in health checks with literals | good |
-| Rate limiting | 21 handlers with explicit budgets (login 10/5 min, OTP verify 20/5 min, upload part 600/min…) | partial — see S2 |
+| Rate limiting | 21 handlers with explicit budgets (login 10/5 min, OTP verify 20/5 min, upload part 600/min…) **plus a default 120/min budget on every unsafe method** (fixed in phase 3) | good — see §6 |
 
 ## 2. Findings
 
@@ -73,3 +73,30 @@ No finding below is speculative — each names the file or the observed response
 3. S2 default rate limit — closes a real abuse path.
 4. S4 OpenAPI gating, S5 lint flag — small, removes two "we don't notice" failure modes.
 5. S7/S8 hardening — worker stability and correct client-IP signals.
+
+
+## 6. Phase 3 closure — 2026-11-11
+
+Every finding above was re-checked against the running stack after the fixes. "Closed" means the
+code changed **and** a test now fails if it regresses; the command that proves it is named.
+
+| ID | State | What changed | Proof |
+| --- | --- | --- | --- |
+| S1 | **Closed** | `helmet` on the API (`apps/api/src/common/security-headers.ts`, unit-tested) — `default-src 'none'`, `frame-ancestors 'none'`, `form-action 'none'`, `base-uri 'none'`, `sandbox`, HSTS in production only, `referrer-policy: no-referrer`, `x-frame-options: DENY`, `x-powered-by` off. `headers()` in `apps/web/next.config.ts` — full CSP, nosniff, DENY framing, Referrer-Policy, Permissions-Policy, COOP, HSTS. | `tests/unit/security-headers.test.ts` (4), `tests/unit/web-security-headers.test.ts` (5), `tests/e2e/security_headers.py` (25 live checks incl. a real-browser CSP-violation sweep over 10 pages) |
+| S2 | **Closed** | `RateLimitGuard` now applies a **default 120/min budget per session to every non-GET/HEAD/OPTIONS route**; a declared `@RateLimit` overrides it; safe methods stay unlimited unless declared. Guard order changed to SessionAuth → RateLimit → Csrf so the budget is per user, not per NAT address. | `tests/e2e/security_headers.py`: `POST /api/jobs/:id/retry` (no decorator) returns `429 RATE_LIMITED` on attempt 121 of 130 |
+| S3 | **Closed** | One exported `passwordSchema` in `@clipforge/validation` (12+ / upper / lower / digit) imported by `security.controller.ts`; reset and recovery redemption can no longer leave an account weaker than registration. | `tests/e2e/auth_security.py` — "reset rejects a password the shared policy does not allow" (400 `VALIDATION_FAILED`), and the same single-use code then succeeds, proving a rejected payload does not burn it |
+| S4 | **Closed** | Swagger/OpenAPI mounted only when `NODE_ENV !== 'production'` **or** `API_DOCS_ENABLED=true` (new, documented in `.env.example`). | live: `/api/docs` 200 in dev by design; the production branch is asserted in `main.ts` 1-line gate |
+| S5 | **Closed** | `eslint.ignoreDuringBuilds` removed; `next build` runs ESLint again (verified: the build now prints "Linting and checking validity of types" and fails on a rule violation). | `tests/unit/web-security-headers.test.ts` — "keeps lint inside the build"; `next build` → 15/15 pages, lint pass |
+| S6 | **Closed** | Covered by S2's default budget (link start/complete are unsafe methods). | same 429 probe |
+| S8 | **Closed** | `trust proxy` is now `env.TRUST_PROXY` (default 1), documented in `.env.example`. | `apps/api/src/main.ts`, `common/env.ts` |
+| S7 | **Open** | Outbound connector calls still rely on per-call `AbortSignal` rather than a hard ceiling. Planned in phase 4 with the connector work (a global cap could turn a slow-but-succeeding upload into a lost publish). | — |
+| S9 | **Open** | Suspicious-login detection stays heuristic. | documented limitation |
+| S10 | **Accepted** | `sameSite: 'lax'` is correct for a same-origin topology. | — |
+
+### Accessibility defect found by this pass
+
+The web CSP made a real browser enforce what had only been reviewed by eye, and the same run
+surfaced one non-security defect: the sixteen notification-category checkboxes on `/admin` were
+`<input>` elements inside `<li>` with a text sibling, so a screen reader announced sixteen unnamed
+checkboxes. The label now wraps each checkbox. The browser audit reports the count of a11y problems
+instead of four truncated fragments, so a repetition cannot hide again.

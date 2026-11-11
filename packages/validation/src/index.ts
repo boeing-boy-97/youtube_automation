@@ -4,6 +4,12 @@ import { NOTIFICATION_CATEGORIES } from '@clipforge/shared-types';
 // ------------------------------- primitives -------------------------------
 
 export const emailSchema = z.string().trim().toLowerCase().email().max(254);
+/**
+ * The single password policy. Every path that writes a password hash must use this schema —
+ * registration, bootstrap, reset-by-code and recovery-code redemption. It previously lived in two
+ * places and the recovery paths had drifted to "10 characters, no complexity", which let an account
+ * end up weaker than the policy it was created under.
+ */
 export const passwordSchema = z
   .string()
   .min(12, 'Password must be at least 12 characters')

@@ -17,11 +17,13 @@ import { CurrentContext, Public, SkipCsrf } from '../common/decorators/auth.deco
 import { RateLimit } from '../common/decorators/rate-limit.decorator';
 import type { RequestContext } from '../common/guards/session-auth.guard';
 import { env } from '../common/env';
+import { passwordSchema as sharedPasswordSchema } from '@clipforge/validation';
 import { SessionService } from './session.service';
 import { SecurityService } from './security.service';
 
 const codeSchema = z.string().trim().regex(/^\d{6}$/, 'Code must be 6 digits');
-const passwordSchema = z.string().min(10, 'Use at least 10 characters').max(200);
+// Same policy as registration. A recovery path must never be a way to weaken an account.
+const passwordSchema = sharedPasswordSchema;
 
 const stepUpCompleteSchema = z.object({
   challengeIds: z.array(z.string().min(1)).min(1).max(2),

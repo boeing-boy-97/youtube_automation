@@ -262,6 +262,19 @@ def main() -> int:
         )
 
         reset_code, _ = wait_for_code(before)
+        # The recovery form must not be a weaker door than the settings form. Both now import the
+        # same schema from @clipforge/validation, so a 12-character floor applies here too — and a
+        # rejected payload must not consume the single-use code, which the successful reset below
+        # proves by still working.
+        status, body = recovery.post(
+            "/api/auth/security/reset-password",
+            {"email": email, "code": reset_code, "newPassword": "Short-1aab"},
+        )
+        results.check(
+            "reset rejects a password the shared policy does not allow",
+            status == 400 and error_code(body) == "VALIDATION_FAILED",
+            f"status={status} code={error_code(body)}",
+        )
         new_password = "Recovered-Passw0rd-2026"
         status, body = recovery.post(
             "/api/auth/security/reset-password",

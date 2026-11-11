@@ -191,17 +191,21 @@ export function NotificationsPanel() {
             <p className="label">Notification categories</p>
             <ul className="mt-1.5 max-h-64 space-y-1 overflow-y-auto rounded-lg border border-line px-3 py-2">
               {options.map((option) => (
-                <li key={option.value} className="flex items-start gap-2 py-1">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 h-4 w-4 rounded border-line"
-                    checked={categories.includes(option.value)}
-                    onChange={() => toggleCategory(option.value)}
-                  />
-                  <span>
-                    <span className="block text-[13px] text-ink">{option.label}</span>
-                    <span className="block text-[11px] text-ink-faint">{option.description}</span>
-                  </span>
+                <li key={option.value}>
+                  {/* The label wraps the checkbox so the visible category name is its accessible
+                      name — otherwise a screen reader announces 16 unnamed checkboxes. */}
+                  <label className="flex cursor-pointer items-start gap-2 py-1">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 rounded border-line"
+                      checked={categories.includes(option.value)}
+                      onChange={() => toggleCategory(option.value)}
+                    />
+                    <span>
+                      <span className="block text-[13px] text-ink">{option.label}</span>
+                      <span className="block text-[11px] text-ink-faint">{option.description}</span>
+                    </span>
+                  </label>
                 </li>
               ))}
               {options.length === 0 ? <li className="py-2 text-[12px] text-ink-faint">Loading categories…</li> : null}

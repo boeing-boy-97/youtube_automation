@@ -36,8 +36,10 @@ import { PrismaService } from './common/prisma.service';
   controllers: [MediaController],
   providers: [
     PrismaService,
-    { provide: APP_GUARD, useClass: RateLimitGuard },
+    // Order matters: the session guard resolves who the caller is, so the limiter can throttle per
+    // user instead of per NAT address, and CSRF runs last on an already-identified request.
     { provide: APP_GUARD, useClass: SessionAuthGuard },
+    { provide: APP_GUARD, useClass: RateLimitGuard },
     { provide: APP_GUARD, useClass: CsrfGuard },
   ],
 })

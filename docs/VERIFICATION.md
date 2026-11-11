@@ -505,3 +505,84 @@ be verified without real credentials — a real Google account signing in, and F
 - `MEDIA_NOT_FOUND` rather than a 500 when a database row outlives its object.
 
 See `docs/SECURITY-NOTES.md` for the dependency (audit) triage and the planned upgrade queue.
+
+
+## Verification pass — 2026-11-11 (security hardening, phase 3)
+
+Scope: the nine findings of `docs/SECURITY_AUDIT.md` closed or explicitly accepted, then every suite
+re-run against the live stack. Nothing below is asserted from code reading: each row is a command
+that was executed after the fix.
+
+### What changed
+
+| # | Change | Where |
+| --- | --- | --- |
+| 1 | `helmet` on the API — strict JSON-only CSP in production, dev left usable for Swagger | `apps/api/src/common/security-headers.ts` (extracted from `main.ts` so it is unit-testable) |
+| 2 | Security headers on the dashboard, independent of the host (`vercel.json` is no longer the only source) | `apps/web/next.config.ts` |
+| 3 | One password policy everywhere a hash is written | `packages/validation/src/index.ts` → `apps/api/src/auth/security.controller.ts` |
+| 4 | Default 120/min budget on every unsafe method; declared limits become overrides | `apps/api/src/common/guards/rate-limit.guard.ts` |
+| 5 | Guard order SessionAuth → RateLimit → Csrf, so the budget is per user and not per NAT | `apps/api/src/app.module.ts` |
+| 6 | OpenAPI inventory no longer public in production (`API_DOCS_ENABLED` opt-in) | `apps/api/src/main.ts` |
+| 7 | Lint restored inside the build | `apps/web/next.config.ts` |
+| 8 | `TRUST_PROXY` configurable; `worker:ai`/`worker:all` point at real files | `apps/api/src/common/env.ts`, `apps/api/package.json`, `apps/api/scripts/run-workers.sh` |
+| 9 | Sixteen unnamed checkboxes on `/admin` now have labels | `apps/web/components/notifications-panel.tsx` |
+
+### Test results (2026-11-11)
+
+| Suite | Result |
+| --- | --- |
+| Typecheck (`tsc --noEmit`, api + web) | clean |
+| Unit (`npm run test:unit`) | **106 passed**, 11 files (+9: `security-headers` 4, `web-security-headers` 5) |
+| Integration (`npm run test:integration`) | **41 passed**, 4 files |
+| Scenarios (`tests/e2e/scenarios.py speech-source.mp4`) | **45/45** checks, 19 scenarios — ends `COMPLETED` with 2 rendered clips |
+| Authorization matrix | **27/27** |
+| Auth security (`tests/e2e/auth_security.py`) | **47/47** (+1: password policy on the recovery path) |
+| Security headers + CSP + rate limit (`tests/e2e/security_headers.py`) | **25/25** — new suite |
+| Browser UI audit (`tests/e2e/ui_responsive.py`) | **165 checks, 0 failures** × 5 viewports × 10 routes |
+| Dashboard build | `next build` clean, ESLint enforced, 15/15 pages |
+
+### Evidence for the headers and the budget
+
+```
+$ curl -sD- -o /dev/null http://127.0.0.1:4000/api/auth/providers      # API
+cross-origin-opener-policy: same-origin
+cross-origin-resource-policy: same-site
+referrer-policy: no-referrer
+x-content-type-options: nosniff
+x-frame-options: DENY
+(no x-powered-by)
+
+$ curl -sD- -o /dev/null http://127.0.0.1:3000/login                  # dashboard
+content-security-policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://apis.google.com …;
+  object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests
+strict-transport-security: max-age=15552000; includeSubDomains
+x-frame-options: DENY  ·  x-content-type-options: nosniff  ·  permissions-policy: camera=(), microphone=()…
+```
+
+Default rate limit on a route that declares none of its own — the check counts attempts until the
+limit fires:
+
+```
+POST /api/jobs/<random uuid>/retry  ×130, signed in as OWNER
+  1 … 120 → 404 NOT_FOUND      x-ratelimit-limit: 120, x-ratelimit-remaining: 116, x-ratelimit-reset: 60
+  121     → 429 RATE_LIMITED   "Rate limit exceeded (120 per 60s)"
+```
+
+The CSP was then exercised the only way a policy can be proven not to break the product: a headless
+Chromium signed in as the sandbox owner, loading all ten routes with a `securitypolicyviolation`
+listener installed **before** any application script ran — 0 violations, 0 console errors, 0 failed
+requests, and the dashboard's own `/api/*` calls all 200.
+
+### Honest notes
+
+- The API's strict `default-src 'none'` CSP is a **production** setting (`NODE_ENV === 'production'`);
+  in development the header is absent so Swagger UI can render. The dev behaviour is asserted, and
+  the production branch is asserted in the unit test (`buildHelmetOptions(true)`), not on this
+  machine — a `NODE_ENV=production` boot needs real TLS-fronted configuration.
+- `sameSite: 'lax'` is unchanged and correct for this same-origin topology (S10, accepted).
+- Two findings remain open by design (S7 outbound timeouts, S9 heuristic login detection); see
+  `docs/SECURITY_AUDIT.md` §6.
+- The sandbox has 2 GB of RAM. A `next build` run while the five workers, the AI engine and the video
+  processor were all resident pushed the machine into swap and made the build appear to hang (~28
+  min, no CPU progress); it completed in ~40 s once the worker set was stopped. Recorded here so the
+  next person does not misread that as a build defect.

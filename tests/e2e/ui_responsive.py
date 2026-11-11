@@ -153,7 +153,11 @@ def main() -> int:
                 problems = page.evaluate(A11Y_PROBE)
                 checks += 1
                 if problems:
-                    failures.append(f"[{label} {route}] a11y: {'; '.join(problems[:4])}")
+                    # Report the count as well as the first few: four identical fragments once hid
+                    # that the same unnamed checkbox was repeated sixteen times.
+                    shown = '; '.join(problems[:6])
+                    more = f" (+{len(problems) - 6} more)" if len(problems) > 6 else ''
+                    failures.append(f"[{label} {route}] a11y ({len(problems)}): {shown}{more}")
 
                 if screens and route in ("/", "/jobs", "/create"):
                     os.makedirs(ARTIFACTS, exist_ok=True)

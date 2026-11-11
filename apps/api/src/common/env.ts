@@ -10,6 +10,13 @@ const bool = z.enum(['true', 'false']).transform((v) => v === 'true');
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']),
   APP_URL: z.string().url(),
+  /** Number of proxies in front of the API (Vercel=1, none=0). Corrupts client IPs if wrong. */
+  TRUST_PROXY: z.coerce.number().int().min(0).max(10).default(1),
+  /** Force the Swagger UI/OpenAPI document on even in production. Off by default. */
+  API_DOCS_ENABLED: z
+    .string()
+    .optional()
+    .transform((value) => value === 'true' || value === '1'),
   API_PORT: z.coerce.number().int().positive(),
   ALLOWED_ORIGINS: z.string().min(1),
   TIMEZONE: z.string().min(3),

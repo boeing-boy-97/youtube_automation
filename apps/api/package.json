@@ -7,13 +7,14 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",
-    "worker:ai": "tsx src/workers/ai.worker.ts",
+    "worker:ai": "tsx src/workers/pipeline.worker.ts",
     "worker:render": "tsx src/workers/render.worker.ts",
     "worker:publish": "tsx src/workers/publish.worker.ts",
     "worker:scheduler": "tsx src/workers/scheduler.worker.ts",
     "worker:recovery": "tsx src/workers/recovery.worker.ts",
     "test": "vitest run --root ../.. --config tests/vitest.config.ts",
-    "test:integration": "vitest run --root ../.. --config tests/vitest.integration.config.ts"
+    "test:integration": "vitest run --root ../.. --config tests/vitest.integration.config.ts",
+    "worker:all": "bash scripts/run-workers.sh"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.709.0",
@@ -31,6 +32,7 @@
     "compression": "^1.8.2",
     "cookie-parser": "1.4.7",
     "firebase-admin": "^13.0.2",
+    "helmet": "^8.3.0",
     "ioredis": "5.4.2",
     "multer": "2.0.2",
     "nodemailer": "6.9.16",

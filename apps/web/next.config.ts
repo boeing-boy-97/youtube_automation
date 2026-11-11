@@ -98,6 +98,51 @@ if (problem) {
   ]);
 }
 
+/**
+ * Security headers are set by Next itself, not only by `vercel.json`, so a self-hosted or
+ * `next start` deployment gets the same protection as the Vercel one.
+ *
+ * The CSP is deliberately explicit rather than "default-src 'self'" plus hope:
+ *
+ *  - `script-src 'unsafe-inline'` is required because Next streams its hydration payload as inline
+ *    scripts without a nonce. Moving to a nonce (middleware-generated) would remove it and is the
+ *    documented follow-up; until then the policy still blocks every *external* script origin, eval,
+ *    framing, base-uri hijacking and form hijacking.
+ *  - Firebase/Google entries exist because "Continue with Google" loads the Firebase auth iframe and
+ *    calls identitytoolkit; without them the button would fail under the policy.
+ *  - `media-src 'self' blob:` covers the clip player; `img-src … data: blob:` covers inline SVG and
+ *    generated posters.
+ */
+const isDev = process.env.NODE_ENV !== 'production';
+
+const csp = [
+  "default-src 'self'",
+  // dev needs eval for React Fast Refresh; production must not have it.
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''} https://apis.google.com https://www.gstatic.com`,
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https://*.googleusercontent.com https://www.gstatic.com",
+  "font-src 'self' data:",
+  "media-src 'self' blob:",
+  "connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com",
+  "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  ...(isDev ? [] : ['upgrade-insecure-requests']),
+].join('; ');
+
+const securityHeaders = [
+  { key: 'Content-Security-Policy', value: csp },
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'X-Frame-Options', value: 'DENY' },
+  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), interest-cohort=()' },
+  { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+  // Only sent over TLS; ignored on http, so it is safe to add unconditionally.
+  { key: 'Strict-Transport-Security', value: 'max-age=15552000; includeSubDomains' },
+];
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
@@ -110,7 +155,10 @@ const nextConfig: NextConfig = {
       { source: '/media/:path*', destination: `${target}/media/:path*` },
     ];
   },
-  eslint: { ignoreDuringBuilds: true },
+  // Lint is part of the build again: a rule that catches a real bug must be able to fail a deploy.
+  async headers() {
+    return [{ source: '/(.*)', headers: securityHeaders }];
+  },
 };
 
 export default nextConfig;
