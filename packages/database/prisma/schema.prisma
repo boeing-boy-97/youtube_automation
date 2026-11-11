@@ -167,6 +167,14 @@ enum AuditAction {
   NOTIFICATION_SETTINGS_CHANGED
   NOTIFICATION_SENT
   NOTIFICATION_FAILED
+  AUTH_OTP_CHALLENGE
+  AUTH_OTP_VERIFIED
+  AUTH_PASSWORD_RESET_REQUESTED
+  AUTH_PASSWORD_RESET
+  AUTH_SESSION_REVOKED
+  AUTH_TELEGRAM_LINKED
+  AUTH_RECOVERY_CODE_USED
+  AUTH_SECURITY_ALERT
 }
 
 enum Visibility {
@@ -190,6 +198,42 @@ enum HealthSeverity {
 
 // ----------------------------- identity -----------------------------------
 
+enum OtpChannel {
+  EMAIL
+  TELEGRAM
+}
+
+enum OtpPurpose {
+  LOGIN
+  PASSWORD_RESET
+  TELEGRAM_LINK
+}
+
+/// How a user proves a second factor. Default OFF so every existing account keeps working exactly
+/// as it does today; turning it on is an explicit, verified action.
+enum OtpMode {
+  OFF
+  EMAIL
+  TELEGRAM
+  DUAL
+}
+
+enum LoginOutcome {
+  SUCCESS
+  FAILED_PASSWORD
+  OTP_CHALLENGE
+  OTP_FAILED
+  BLOCKED
+}
+
+enum LoginMethod {
+  PASSWORD
+  FIREBASE
+  OTP
+  RECOVERY_CODE
+  BOOTSTRAP
+}
+
 model User {
   id            String     @id @default(uuid()) @db.Uuid
   email         String     @unique
@@ -207,12 +251,23 @@ model User {
   lastLoginAt   DateTime?
   failedLoginAttempts Int  @default(0)
   lockedUntil   DateTime?
+  // Second-factor policy. OFF by default so accounts created before this feature keep behaving
+  // exactly as they did; EMAIL/TELEGRAM/DUAL require a code before a session is issued.
+  otpMode       OtpMode    @default(OFF)
+  // Telegram chat that receives codes and notifications for this user. Numeric (Bot API chat ids
+  // are numbers, groups are negative). Null until the user links one; only the masked form is ever
+  // returned to the browser.
+  telegramChatId   String?
+  telegramLinkedAt DateTime?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
   deletedAt     DateTime?
 
   memberships WorkspaceMember[]
   sessions    Session[]
+  otpChallenges OtpChallenge[]
+  loginEvents   LoginEvent[]
+  recoveryCodes RecoveryCode[]
   auditLogs   AuditLog[]
 
   @@index([status])
@@ -273,6 +328,8 @@ model Session {
   lastSeenAt DateTime @default(now())
   expiresAt  DateTime
   revokedAt  DateTime?
+  /// Browser/platform guess from the user agent, for the active-sessions list.
+  deviceLabel String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -875,6 +932,7 @@ enum NotificationCategory {
   WORKFLOW_STOPPED
   DAILY_SUMMARY
   CONNECTION_TEST
+  SECURITY_ALERT
 }
 
 enum NotificationStatus {
@@ -916,4 +974,66 @@ model NotificationDelivery {
   @@unique([workspaceId, dedupeKey])
   @@index([workspaceId, createdAt])
   @@index([status, nextAttemptAt])
+}
+
+/// A one-time code for a single (purpose, channel) pair.
+///
+/// Only a hash is stored. The plaintext exists in exactly two places: the response of the call that
+/// created it (never for LOGIN — it goes to the delivery channel only) and the delivery message.
+/// `consumedAt` plus the unique-ish query in the service is what makes a code single-use.
+model OtpChallenge {
+  id          String     @id @default(uuid()) @db.Uuid
+  userId      String     @db.Uuid
+  purpose     OtpPurpose
+  channel     OtpChannel
+  codeHash    String
+  expiresAt   DateTime
+  attempts    Int        @default(0)
+  maxAttempts Int        @default(5)
+  sentAt      DateTime   @default(now())
+  consumedAt  DateTime?
+  /// Set when delivery failed, so the operator sees "code created but not delivered" rather than a
+  /// silent no-op. Never contains a credential.
+  deliveryError String?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime   @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose, channel])
+  @@index([expiresAt])
+}
+
+/// One row per authentication attempt, successful or not. This is the login-history surface and the
+/// input to suspicious-login detection.
+model LoginEvent {
+  id          String       @id @default(uuid()) @db.Uuid
+  userId      String       @db.Uuid
+  outcome     LoginOutcome
+  method      LoginMethod
+  ipAddress   String?
+  userAgent   String?
+  /// Human-readable device guess derived from the user agent (browser + platform).
+  deviceLabel String?
+  suspicious  Boolean      @default(false)
+  detail      String?
+  createdAt   DateTime     @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+/// Single-use account-recovery codes. Ten are generated at a time, shown once, stored hashed.
+model RecoveryCode {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt])
 }

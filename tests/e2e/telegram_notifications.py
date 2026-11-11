@@ -355,8 +355,20 @@ def scenario_workflow(client: Client) -> None:
 
     print("\n=== 3. Workflow stopped manually")
     telegram.reset()
-    status, _ = client.post(f"/api/jobs/{job_id}/cancel", {})
-    results.check("cancel accepted", status in (200, 201), str(status))
+    # A job can only be cancelled while it is still running. On a stack where the AI provider is not
+    # configured the pipeline fails within a second, so a single attempt would test the race rather
+    # than cancellation: retry with a fresh job until one is still live (bounded).
+    status, detail = 0, ""
+    for attempt in range(1, 4):
+        status, body = client.post(f"/api/jobs/{job_id}/cancel", {})
+        if status in (200, 201):
+            break
+        detail = f"attempt {attempt}: {status} {json.dumps(body)[:120] if body else ''}"
+        status, live = create_job(client, source["id"])
+        if status in (200, 201):
+            job_id = live["id"]
+            time.sleep(0.2)
+    results.check("cancel accepted", status in (200, 201), detail or str(status))
     text = telegram.wait_for("Workflow stopped", 20)
     results.check("WORKFLOW_STOPPED sent", text is not None, text or "not received")
     results.check("stop message names the actor", bool(text) and "admin@clipforge.local" in text, (text or "")[:200])

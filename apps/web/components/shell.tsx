@@ -18,6 +18,7 @@ const NAV: NavItem[] = [
   { href: '/publishing', label: 'Publishing', short: 'Publish', icon: 'M4 12l16-8-6 16-3-6z' },
   { href: '/accounts', label: 'Connected accounts', short: 'Accounts', icon: 'M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0zM4 21a8 8 0 0 1 16 0' },
   { href: '/brand', label: 'Brand studio', short: 'Brand', icon: 'M12 3l2.6 5.6 6.1.8-4.4 4.3 1.1 6-5.4-3-5.4 3 1.1-6L3.3 9.4l6.1-.8z' },
+  { href: '/security', label: 'Security', short: 'Security', icon: 'M12 3l8 4v5c0 5-3.4 8.3-8 9-4.6-.7-8-4-8-9V7zM9 12l2 2 4-4' },
   { href: '/settings', label: 'Settings', short: 'Settings', icon: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14 3h-4l-.6 2.7a7 7 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2L10 21h4l.6-2.7a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z' },
   { href: '/activity', label: 'Activity log', short: 'Activity', icon: 'M4 6h16M4 12h16M4 18h10' },
   { href: '/admin', label: 'System admin', short: 'Admin', icon: 'M12 3l8 4v5c0 5-3.4 8.3-8 9-4.6-.7-8-4-8-9V7z' },

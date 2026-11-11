@@ -400,6 +400,7 @@ export const NOTIFICATION_CATEGORIES = [
   'WORKFLOW_STOPPED',
   'DAILY_SUMMARY',
   'CONNECTION_TEST',
+  'SECURITY_ALERT',
 ] as const;
 
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
@@ -431,6 +432,7 @@ export const NOTIFICATION_CATEGORY_META: Record<NotificationCategory, Notificati
   WORKFLOW_STOPPED: { label: 'Workflow stopped', description: 'A job was cancelled manually', severity: 'warning', defaultEnabled: true },
   DAILY_SUMMARY: { label: 'Daily summary', description: 'One message per day with the previous 24 hours of activity', severity: 'info', defaultEnabled: true },
   CONNECTION_TEST: { label: 'Connection test', description: 'Test messages requested from the admin dashboard, and the delivery audit row', severity: 'info', defaultEnabled: true },
+  SECURITY_ALERT: { label: 'Security alert', description: 'New device sign-in, password reset, and recovery-code use', severity: 'warning', defaultEnabled: true },
 };
 
 /** Settings an operator can change from the dashboard. The bot token is deliberately absent: it is

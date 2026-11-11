@@ -116,6 +116,29 @@ services:
       - key: TELEGRAM_CHAT_ID # e.g. -1001234567890 (group) or @channelusername
         sync: false
 
+      # --- optional: one-time codes by email (docs/AUTH-SECURITY.md) ---
+      # Unset SMTP_HOST ⇒ the email second factor reports itself unavailable and cannot be enabled;
+      # password-only sign-in keeps working. Any relay works (Brevo free tier, Mailtrap, Gmail).
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM # e.g. ClipForge <no-reply@example.com>
+        sync: false
+      # One-time-code policy. Defaults match docs/AUTH-SECURITY.md.
+      - key: OTP_TTL_SECONDS
+        value: "300"
+      - key: OTP_RESEND_COOLDOWN_SECONDS
+        value: "60"
+      - key: OTP_MAX_ATTEMPTS
+        value: "5"
+
       # --- optional: Google sign-in (docs/FIREBASE-AUTH.md). Leave unset for password-only. ---
       - key: FIREBASE_PROJECT_ID
         sync: false

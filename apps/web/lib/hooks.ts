@@ -66,16 +66,161 @@ export function useFirebaseLogin() {
   });
 }
 
+/** What `POST /api/auth/login` returns: a session, or the challenges of a second factor. */
+export type LoginResult =
+  | { csrfToken: string; userId: string; workspaceId: string }
+  | {
+      otpRequired: true;
+      mode: 'EMAIL' | 'TELEGRAM' | 'DUAL';
+      challenges: { challengeId: string; channel: 'EMAIL' | 'TELEGRAM'; destination: string; expiresAt: string; attemptsRemaining: number }[];
+      resendAfterSeconds: number;
+      deliveryProblem: { channel: string; error: string } | null;
+    };
+
 export function useLogin() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: { email: string; password: string }) => api<{ csrfToken: string }>('/api/auth/login', { method: 'POST', body: input }),
+    mutationFn: (input: { email: string; password: string }) => api<LoginResult>('/api/auth/login', { method: 'POST', body: input }),
     // The session query is refetched *before* the caller navigates, otherwise the shell can
     // observe the previous `authenticated: false` cache entry and bounce the user back to /login.
+    // When a second factor is required there is no session yet, so there is nothing to invalidate.
+    onSuccess: async (data) => {
+      if ('otpRequired' in data) return;
+      setCsrfToken(data.csrfToken);
+      await client.invalidateQueries({ queryKey: ['session'] });
+    },
+  });
+}
+
+export interface SecuritySession {
+  id: string;
+  device: string;
+  userAgent: string | null;
+  ipAddress: string | null;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+  current: boolean;
+}
+
+export interface SecurityOverview {
+  email: string;
+  otpMode: 'OFF' | 'EMAIL' | 'TELEGRAM' | 'DUAL';
+  emailVerified: boolean;
+  telegram: { linked: boolean; chatId: string | null; linkedAt: string | null };
+  channels: { email: boolean; telegram: boolean };
+  sessions: SecuritySession[];
+  recoveryCodes: { remaining: number; total: number };
+  policies: { otpTtlSeconds: number; resendCooldownSeconds: number; maxAttempts: number };
+}
+
+export interface LoginEventRow {
+  id: string;
+  outcome: 'SUCCESS' | 'FAILED_PASSWORD' | 'OTP_CHALLENGE' | 'OTP_FAILED' | 'BLOCKED';
+  method: 'PASSWORD' | 'FIREBASE' | 'OTP' | 'RECOVERY_CODE' | 'BOOTSTRAP';
+  ipAddress: string | null;
+  device: string;
+  suspicious: boolean;
+  detail: string | null;
+  createdAt: string;
+}
+
+export function useSecurityOverview() {
+  return useQuery({
+    queryKey: ['security'],
+    queryFn: () => api<SecurityOverview>('/api/auth/security/overview'),
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useSetOtpMode() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (mode: SecurityOverview['otpMode']) =>
+      api<{ otpMode: string }>('/api/auth/security/otp-mode', { method: 'PUT', body: { mode } }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['security'] }),
+  });
+}
+
+export function useRevokeSession() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api<{ revoked: boolean }>(`/api/auth/security/sessions/${id}`, { method: 'DELETE' }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['security'] }),
+  });
+}
+
+export function useRevokeAllSessions() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (keepCurrent: boolean) =>
+      api<{ revoked: number }>('/api/auth/security/sessions/revoke-all', { method: 'POST', body: { keepCurrent } }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['security'] }),
+  });
+}
+
+export function useLoginHistory() {
+  return useQuery({
+    queryKey: ['security', 'logins'],
+    queryFn: () => api<LoginEventRow[]>('/api/auth/security/login-history'),
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useGenerateRecoveryCodes() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<{ codes: string[]; remaining: number }>('/api/auth/security/recovery-codes', { method: 'POST' }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['security'] }),
+  });
+}
+
+export function useCompleteStepUp() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { challengeIds: string[]; codes: string[] }) =>
+      api<{ csrfToken: string; userId: string; workspaceId: string }>('/api/auth/security/otp/step-up/complete', { method: 'POST', body: input }),
     onSuccess: async (data) => {
       setCsrfToken(data.csrfToken);
       await client.invalidateQueries({ queryKey: ['session'] });
     },
+  });
+}
+
+export function useResendOtp() {
+  return useMutation({
+    mutationFn: (challengeId: string) =>
+      api<{ challenge: { challengeId: string; destination: string; expiresAt: string } }>('/api/auth/security/otp/resend', {
+        method: 'POST',
+        body: { challengeId },
+      }),
+  });
+}
+
+export function useStartTelegramLink() {
+  return useMutation({
+    mutationFn: (chatId: string) =>
+      api<{ challengeId: string; destination: string; expiresAt: string }>('/api/auth/security/telegram/link/start', {
+        method: 'POST',
+        body: { chatId },
+      }),
+  });
+}
+
+export function useCompleteTelegramLink() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { challengeId: string; code: string; chatId: string }) =>
+      api<{ linked: boolean; chatId: string }>('/api/auth/security/telegram/link/complete', { method: 'POST', body: input }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['security'] }),
+  });
+}
+
+export function useUnlinkTelegram() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<{ linked: boolean }>('/api/auth/security/telegram/unlink', { method: 'POST', body: {} }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['security'] }),
   });
 }
 

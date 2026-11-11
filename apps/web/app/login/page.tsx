@@ -7,7 +7,16 @@ import { GoogleSignInButton } from '@/components/google-button';
 import { Card, Field } from '@/components/ui';
 import { describeAuthError, validateCredentials } from '@/lib/auth-messages';
 import { GoogleSignInError, signInWithGoogle } from '@/lib/firebase-client';
-import { useBootstrap, useFirebaseLogin, useLogin, useRegister, useSession, useSignInProviders } from '@/lib/hooks';
+import {
+  useBootstrap,
+  useCompleteStepUp,
+  useFirebaseLogin,
+  useLogin,
+  useRegister,
+  useResendOtp,
+  useSession,
+  useSignInProviders,
+} from '@/lib/hooks';
 
 type Mode = 'login' | 'register' | 'bootstrap';
 
@@ -39,6 +48,10 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [touched, setTouched] = useState<{ email?: boolean; password?: boolean }>({});
   const [googleError, setGoogleError] = useState<string | null>(null);
+  const stepUp = useCompleteStepUp();
+  const resend = useResendOtp();
+  // One input per required channel: a DUAL policy returns two challenges and both must pass.
+  const [codes, setCodes] = useState<Record<string, string>>({});
 
   const credentials = useMemo(() => validateCredentials(email, password, mode), [email, password, mode]);
   const submitted = login.isPending || register.isPending || bootstrap.isPending || firebaseLogin.isPending;
@@ -53,12 +66,113 @@ export default function LoginPage() {
   // No API means no login: show the deployment diagnosis rather than a form that cannot succeed.
   if (session.error) return <BackendDown message={session.error.message} onRetry={() => void session.refetch()} />;
 
+  // The password was right but the account has a second factor. No session exists yet, so this is a
+  // distinct screen: it must not look like a fresh login, and it must not offer a way to skip.
+  const challenge = login.data && 'otpRequired' in login.data ? login.data : null;
+  if (challenge) {
+    const submitCodes = (event: React.FormEvent) => {
+      event.preventDefault();
+      const ids = challenge.challenges.map((item) => item.challengeId);
+      stepUp.mutate(
+        { challengeIds: ids, codes: ids.map((id) => (codes[id] ?? '').trim()) },
+        { onSuccess: () => router.replace('/') },
+      );
+    };
+    return (
+      <div className="flex min-h-[100dvh] items-center justify-center bg-surface-muted px-4 py-8">
+        <div className="w-full max-w-[420px]">
+          <Card className="p-5 sm:p-6">
+            <div className="mb-5">
+              <h2 className="text-[19px] font-semibold tracking-tight text-ink">Two-step verification</h2>
+              <p className="mt-1 text-[13px] text-ink-soft">
+                Your password was accepted. Enter the code{challenge.challenges.length > 1 ? 's' : ''} we just sent to finish signing in.
+              </p>
+            </div>
+
+            <form onSubmit={submitCodes} className="space-y-3.5" noValidate>
+              {challenge.challenges.map((item) => (
+                <Field
+                  key={item.challengeId}
+                  label={item.channel === 'EMAIL' ? `Email code sent to ${item.destination}` : `Telegram code sent to ${item.destination}`}
+                  hint={`Expires in ${Math.max(1, Math.round((new Date(item.expiresAt).getTime() - Date.now()) / 60000))} min · ${item.attemptsRemaining} attempts`}
+                >
+                  <div className="flex gap-2">
+                    <input
+                      className="input font-mono tracking-[0.3em]"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      placeholder="000000"
+                      value={codes[item.challengeId] ?? ''}
+                      onChange={(event) => setCodes((state) => ({ ...state, [item.challengeId]: event.target.value.replace(/\D/g, '').slice(0, 6) }))}
+                      disabled={stepUp.isPending}
+                    />
+                    <button
+                      type="button"
+                      className="btn-secondary shrink-0 whitespace-nowrap"
+                      disabled={resend.isPending}
+                      onClick={() => resend.mutate(item.challengeId)}
+                    >
+                      {resend.isPending ? 'Sending…' : 'Resend'}
+                    </button>
+                  </div>
+                </Field>
+              ))}
+
+              {challenge.deliveryProblem ? (
+                <div role="alert" className="rounded-lg bg-caution-soft px-3 py-2.5 text-[12.5px] leading-relaxed text-caution">
+                  {challenge.deliveryProblem.channel} delivery failed: {challenge.deliveryProblem.error}. A code that was not
+                  delivered cannot be guessed — fix the channel, or use a recovery code from your Security page.
+                </div>
+              ) : null}
+
+              {resend.error ? (
+                <p role="alert" className="text-[12.5px] text-danger">
+                  {describeAuthError(resend.error).message}
+                </p>
+              ) : null}
+
+              {stepUp.error ? (
+                <div role="alert" className="rounded-lg bg-danger-soft px-3 py-2.5">
+                  <p className="text-[12.5px] font-semibold text-danger">{describeAuthError(stepUp.error).title}</p>
+                  <p className="mt-0.5 text-[12.5px] leading-relaxed text-danger">{describeAuthError(stepUp.error).message}</p>
+                </div>
+              ) : null}
+
+              <button className="btn-primary w-full" type="submit" disabled={stepUp.isPending}>
+                {stepUp.isPending ? 'Verifying…' : 'Verify and sign in'}
+              </button>
+              <button
+                type="button"
+                className="w-full text-[12.5px] text-ink-soft hover:text-ink hover:underline"
+                onClick={() => {
+                  login.reset();
+                  setCodes({});
+                }}
+              >
+                Use a different account
+              </button>
+            </form>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     setTouched({ email: true, password: true });
     if (Object.keys(credentials).length > 0) return;
     if (mode === 'login') {
-      login.mutate({ email: email.trim(), password }, { onSuccess: () => router.replace('/') });
+      login.mutate(
+        { email: email.trim(), password },
+        {
+          // A step-up response must NOT navigate: there is no session until the code is verified.
+          onSuccess: (data) => {
+            if (!('otpRequired' in data)) router.replace('/');
+          },
+        },
+      );
     } else if (mode === 'register') {
       register.mutate({ email: email.trim(), password, displayName: displayName.trim(), workspaceName: workspaceName.trim() }, { onSuccess: () => router.replace('/') });
     } else {

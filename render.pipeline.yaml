@@ -107,6 +107,26 @@ services:
         sync: false
       - key: TELEGRAM_CHAT_ID
         sync: false
+      # One-time codes by email (docs/AUTH-SECURITY.md). Unset SMTP_HOST ⇒ email second factor is
+      # unavailable and cannot be enabled; password-only sign-in is unaffected.
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: OTP_TTL_SECONDS
+        value: "300"
+      - key: OTP_RESEND_COOLDOWN_SECONDS
+        value: "60"
+      - key: OTP_MAX_ATTEMPTS
+        value: "5"
       - key: UPLOAD_PART_SIZE_MIB # keep 16 through the API; see DEPLOY-VERCEL.md before lowering
         value: 16
       - key: WORKER_CONCURRENCY_AI

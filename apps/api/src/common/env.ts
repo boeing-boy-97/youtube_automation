@@ -80,6 +80,29 @@ export const envSchema = z.object({
   TELEGRAM_TIMEOUT_MS: z.coerce.number().int().min(500).max(30_000).default(5_000),
   TELEGRAM_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(6).default(3),
 
+  /**
+   * SMTP for one-time codes and password-reset mail. All optional: with no SMTP_HOST the email
+   * channel reports itself as unavailable instead of pretending to send, and `POST
+   * /api/auth/security/overview` says so. StartTLS on 587 is the default because that is what every
+   * free-tier relay (Brevo, Mailtrap, Gmail app passwords) supports.
+   */
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65_535).default(587),
+  SMTP_SECURE: z
+    .string()
+    .optional()
+    .transform((value) => value === 'true' || value === '1'),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().optional(),
+
+  /** One-time-code policy. TTL in seconds, resend cooldown, and wrong-attempt budget. */
+  OTP_TTL_SECONDS: z.coerce.number().int().min(60).max(3_600).default(300),
+  OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().min(0).max(600).default(60),
+  OTP_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(5),
+  /** Optional dedicated secret for code hashing; falls back to SESSION_SECRET. */
+  OTP_SECRET: z.string().optional(),
+
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_TEXT_MODEL: z.string().optional(),
   GEMINI_VISION_MODEL: z.string().optional(),

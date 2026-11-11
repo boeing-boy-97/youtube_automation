@@ -7,22 +7,22 @@ import type { BootstrapInput, LoginInput, RegisterInput } from '@clipforge/valid
 import { env } from '../common/env';
 import { FirebaseService, type FirebaseIdentity } from './firebase.service';
 import { SessionService } from './session.service';
+import { PASSWORD_HASH_OPTIONS as HASH_OPTIONS } from './password-hash';
+import { SecurityService } from './security.service';
 
 const MAX_FAILED_ATTEMPTS = 10;
 const LOCK_MINUTES = 15;
 
-export const PASSWORD_HASH_OPTIONS: argon2.Options = {
-  type: argon2.argon2id,
-  memoryCost: 19456, // 19 MiB — OWASP 2024 minimum for argon2id
-  timeCost: 2,
-  parallelism: 1,
-};
+// Defined in password-hash.ts (imported by the security service too) and re-exported here so
+// existing imports keep working.
+export { PASSWORD_HASH_OPTIONS } from './password-hash';
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly sessions: SessionService,
     private readonly firebase: FirebaseService,
+    private readonly security: SecurityService,
   ) {}
 
   /**
@@ -39,7 +39,7 @@ export class AuthService {
       throw new ConflictException({ code: 'CONFLICT', message: 'Bootstrap already completed — a user account exists' });
     }
 
-    const passwordHash = await argon2.hash(input.password, PASSWORD_HASH_OPTIONS);
+    const passwordHash = await argon2.hash(input.password, HASH_OPTIONS);
     const slug = slugify(input.workspaceName);
 
     const { user, workspace } = await prisma.$transaction(async (tx) => {
@@ -72,7 +72,7 @@ export class AuthService {
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) throw new ConflictException({ code: 'CONFLICT', message: 'An account with this email already exists' });
 
-    const passwordHash = await argon2.hash(input.password, PASSWORD_HASH_OPTIONS);
+    const passwordHash = await argon2.hash(input.password, HASH_OPTIONS);
     const workspaceName = input.workspaceName ?? `${input.displayName}'s workspace`;
     let slug = slugify(workspaceName);
     if (await prisma.workspace.findUnique({ where: { slug } })) slug = `${slug}-${Math.random().toString(36).slice(2, 7)}`;
@@ -117,13 +117,23 @@ export class AuthService {
           lockedUntil: attempts >= MAX_FAILED_ATTEMPTS ? new Date(Date.now() + LOCK_MINUTES * 60_000) : null,
         },
       });
+      void this.security.recordLogin(user.id, 'FAILED_PASSWORD', 'PASSWORD', request, { detail: 'wrong password' });
       throw invalid;
     }
     await prisma.user.update({
       where: { id: user.id },
-      data: { failedLoginAttempts: 0, lockedUntil: null, lastLoginAt: new Date() },
+      data: { failedLoginAttempts: 0, lockedUntil: null },
     });
+
+    // Second factor: when the account has an OTP policy, NO session is created here. The caller
+    // receives one challenge per required channel and the session only exists after both verify.
+    const stepUp = await this.security.beginStepUp(user, request);
+    if (stepUp) return stepUp;
+
+    const suspicious = await this.security.isSuspicious(user.id, request);
     const session = await this.issueSession(user.id, request);
+    await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+    await this.security.recordLogin(user.id, 'SUCCESS', 'PASSWORD', request, { suspicious });
     await appendAuditLog({
       workspaceId: session.workspaceId,
       userId: user.id,
@@ -132,6 +142,7 @@ export class AuthService {
       ipAddress: request.ip,
       userAgent: request.get('user-agent') ?? null,
     });
+    if (suspicious) await this.security.alertIfSuspicious(user, request);
     return session;
   }
 
@@ -267,20 +278,9 @@ export class AuthService {
   }
 
   private async issueSession(userId: string, request: Request) {
-    const membership = await prisma.workspaceMember.findFirst({
-      where: { userId },
-      include: { workspace: true },
-      orderBy: { createdAt: 'asc' },
-    });
-    if (!membership) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'User has no workspace' });
-    const { rawToken, csrfToken, expiresAt } = await this.sessions.create(userId, request);
-    void expiresAt;
-    return {
-      rawToken,
-      csrfToken,
-      workspaceId: membership.workspaceId,
-      userId,
-    };
+    const issued = await this.sessions.issue(userId, request);
+    if (!issued) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'User has no workspace' });
+    return issued;
   }
 
   /** Aggregated view for GET /api/auth/session. */

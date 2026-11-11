@@ -111,6 +111,9 @@ export class AuthController {
   @RateLimit({ limit: 10, windowSeconds: 300, scope: 'auth-login' })
   async login(@Body() body: unknown, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const result = await this.auth.login(loginSchema.parse(body), req);
+    // Accounts with a second-factor policy get challenges back and NO cookie: the session does not
+    // exist yet. `POST /api/auth/security/otp/step-up/complete` sets the cookie on success.
+    if ('otpRequired' in result) return result;
     this.setSessionCookies(res, result.rawToken);
     return { csrfToken: result.csrfToken, userId: result.userId, workspaceId: result.workspaceId };
   }

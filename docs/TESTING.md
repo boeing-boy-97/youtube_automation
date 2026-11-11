@@ -81,6 +81,20 @@ fake Bot API over HTTP), and `tests/e2e/telegram_notifications.py` (real API pro
 .venv/bin/python tests/e2e/scenarios.py /home/user/testdata/light-source.mp4
 ```
 
+## Account security — `bash tests/e2e/run_auth_security.sh`
+
+Drives two-step sign-in against a **real SMTP server** (`tests/e2e/smtp_sink.py`, port 1025): the runner
+restarts the API with `SMTP_HOST=127.0.0.1` so the API delivers codes through nodemailer over TCP and the
+suite reads them out of the delivered message. 46 checks: policy refusal for a channel that cannot
+deliver, password-only login unchanged, step-up challenge with no session cookie, wrong code rejected
+with `attemptsRemaining` decrementing, correct code opening the session, replay rejected, resend
+cooldown, sign-in history contents, hashed-at-rest codes, session revocation, password reset revoking
+every session, recovery-code issue/redeem/reuse-refused, and a Telegram link to an unknown chat failing
+loudly.
+
+The admin account's `otpMode` is restored to `OFF` in a `finally` block, so a failed run cannot lock the
+next suite out.
+
 ## Adversarial probes — `.venv/bin/python tests/e2e/logic_probes.py`
 
 The suites above prove the product works on the happy path. These probes try to break the logic:

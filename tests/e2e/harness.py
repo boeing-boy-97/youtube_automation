@@ -17,7 +17,9 @@ import uuid
 API = os.environ.get("CLIPFORGE_API", "http://127.0.0.1:4000")
 WEB_ORIGIN = os.environ.get("CLIPFORGE_WEB_ORIGIN", "http://127.0.0.1:3000")
 ADMIN = ("admin@clipforge.local", "Sandbox-Admin-2026")
-MEMBER = ("member@clipforge.local", "Member-Passw0rd-2026")
+# The member fixture is provisioned by copying the admin password hash (`ensure_member`), because the
+# API has no invite surface yet; both sandbox accounts therefore share the sandbox password.
+MEMBER = ("member@clipforge.local", ADMIN[1])
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://clipforge:clipforge_local_dev@127.0.0.1:5432/clipforge")
 PART_BYTES = 8 * 1024 * 1024
 
@@ -166,6 +168,35 @@ def error_code(body) -> str | None:
         if isinstance(error, dict):
             return error.get("code")
     return None
+
+
+def ensure_member() -> str:
+    """Make sure the RBAC fixture account exists, with the sandbox password.
+
+    The member account is deliberately not created by the seeder (self-registration is closed by
+    default), so any environment that is re-provisioned loses it and every role assertion then fails
+    as "401", which reads like a permission bug instead of missing fixture data.
+    """
+    existing = sql("SELECT id FROM \"User\" WHERE email = 'member@clipforge.local'")
+    if existing:
+        return existing
+    sql(
+        """
+        INSERT INTO "User" (id, email, "passwordHash", "displayName", role, status, "updatedAt")
+          SELECT gen_random_uuid(), 'member@clipforge.local', "passwordHash", 'Sandbox Member', 'MEMBER', 'ACTIVE', now()
+          FROM "User" WHERE email = 'admin@clipforge.local';
+        """
+    )
+    user_id = sql("SELECT id FROM \"User\" WHERE email = 'member@clipforge.local'")
+    workspace_id = sql("SELECT id FROM \"Workspace\" ORDER BY \"createdAt\" LIMIT 1")
+    sql(
+        f"""
+        INSERT INTO "WorkspaceMember" (id, "workspaceId", "userId", role)
+          VALUES (gen_random_uuid(), '{workspace_id}', '{user_id}', 'MEMBER')
+          ON CONFLICT DO NOTHING;
+        """
+    )
+    return user_id
 
 
 def create_second_tenant(suffix: str | None = None) -> tuple[str, str, str, str]:

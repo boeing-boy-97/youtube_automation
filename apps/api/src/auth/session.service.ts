@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { randomUUID, timingSafeEqual as nodeTimingSafeEqual } from 'node:crypto';
 import { prisma, generateOpaqueToken, hmacToken, timingSafeEqual } from '@clipforge/database';
 import type { Request } from 'express';
 
@@ -16,6 +17,13 @@ export interface AuthenticatedSession {
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
+/** Constant-time comparison of two same-length strings (node's helper is buffer-typed). */
+function bufferEqual(left: string, right: string): boolean {
+  const a = Buffer.from(left);
+  const b = Buffer.from(right);
+  return a.length === b.length && nodeTimingSafeEqual(a, b);
+}
+
 @Injectable()
 export class SessionService {
   static readonly COOKIE_NAME = 'cf_session';
@@ -28,10 +36,16 @@ export class SessionService {
     request: Request,
   ): Promise<{ sessionId: string; rawToken: string; csrfToken: string; expiresAt: Date }> {
     const rawToken = generateOpaqueToken(32);
-    const csrfToken = generateOpaqueToken(24);
+    // The CSRF token is *derived* from the session id rather than random-per-fetch. Two tabs (or a
+    // reload racing an in-flight request) previously invalidated each other's token, which showed up
+    // as a spurious 403; a derived token is stable for the life of the session and still requires the
+    // server's secret to forge. The stored hash is kept so sessions issued before this change verify.
+    const sessionId = randomUUID();
+    const csrfToken = this.csrfTokenFor(sessionId);
     const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
     const row = await prisma.session.create({
       data: {
+        id: sessionId,
         userId,
         tokenHash: hmacToken(rawToken),
         csrfHash: sha256(csrfToken),
@@ -42,6 +56,26 @@ export class SessionService {
     });
     this.csrfCache.set(row.id, row.csrfHash);
     return { sessionId: row.id, rawToken, csrfToken, expiresAt };
+  }
+
+  /**
+   * Issues a session AND resolves the workspace it acts in. Every login path — password, Firebase,
+   * second factor, recovery code — goes through here, so there is exactly one definition of what a
+   * freshly signed-in user receives. Returns a discriminated result instead of throwing so the
+   * password path can still clean up before refusing.
+   */
+  async issue(
+    userId: string,
+    request: Request,
+  ): Promise<{ rawToken: string; csrfToken: string; workspaceId: string; userId: string } | null> {
+    const membership = await prisma.workspaceMember.findFirst({
+      where: { userId },
+      include: { workspace: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!membership) return null;
+    const { rawToken, csrfToken } = await this.create(userId, request);
+    return { rawToken, csrfToken, workspaceId: membership.workspaceId, userId };
   }
 
   async validate(rawToken: string, request: Request): Promise<AuthenticatedSession | null> {
@@ -89,12 +123,18 @@ export class SessionService {
   private readonly csrfCache = new Map<string, string>();
 
   /** Rotates the CSRF secret for an existing session and returns the new raw token. */
+  /** Deterministic per-session token: same value on every read, unforgeable without SESSION_SECRET. */
+  csrfTokenFor(sessionId: string): string {
+    return createHmac('sha256', env.SESSION_SECRET).update(`csrf:${sessionId}`).digest('base64url').slice(0, 32);
+  }
+
+  /**
+   * Historical name kept for callers: it no longer rotates. Reading the token must not invalidate a
+   * token another tab is holding.
+   */
   reissueCsrf(sessionId: string): string {
-    const token = generateOpaqueToken(24);
+    const token = this.csrfTokenFor(sessionId);
     this.csrfCache.set(sessionId, sha256(token));
-    void prisma.session
-      .update({ where: { id: sessionId }, data: { csrfHash: sha256(token) } })
-      .catch(() => undefined);
     return token;
   }
 
@@ -103,6 +143,12 @@ export class SessionService {
   }
 
   async verifyCsrf(sessionId: string, presentedToken: string): Promise<boolean> {
+    const expected = this.csrfTokenFor(sessionId);
+    if (presentedToken.length === expected.length && bufferEqual(expected, presentedToken)) {
+      return true;
+    }
+    // Sessions created before the derived-token change still carry a random hash; keep verifying them
+    // so a deploy does not log everyone out.
     const presented = sha256(presentedToken);
     const cached = this.csrfCache.get(sessionId);
     if (cached) return timingSafeEqual(cached, presented);

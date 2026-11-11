@@ -17,6 +17,8 @@ grouped by intent — use that one if you are browsing, this one if you know the
 | [DEPLOY-VERCEL.md](DEPLOY-VERCEL.md) | how do I put the dashboard on Vercel and the API on Render, and why is that the split? |
 | [OPERATIONS.md](OPERATIONS.md) | how do I run, back up, restore and troubleshoot the deployed system? |
 | [ADD-API-KEYS.md](ADD-API-KEYS.md) | how do I turn on Gemini / YouTube / Instagram later without touching code? |
+| [AUTH-SECURITY.md](AUTH-SECURITY.md) | how do I turn on two-step verification, recover a lost password, link Telegram for codes, and see or revoke my signed-in devices? |
+| [UPGRADE-PLAN.md](UPGRADE-PLAN.md) | which of the 17 upgrade modules are done, which are partial, which are not started — and why? |
 | [TELEGRAM-NOTIFICATIONS.md](TELEGRAM-NOTIFICATIONS.md) | how do I turn on free Telegram notifications, which events are covered, and how are duplicates and retries handled? |
 | [FIREBASE-AUTH.md](FIREBASE-AUTH.md) | how do I enable Google sign-in alongside the password login? |
 | [PLATFORM-SETUP.md](PLATFORM-SETUP.md) | what exactly does YouTube and Instagram require before publishing works? |
