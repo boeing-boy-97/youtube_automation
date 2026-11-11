@@ -74,7 +74,7 @@ services, every required variable demanded explicitly); they have **not** been e
   timeout, failure recorded without losing the event.
 
 ### Dashboard (10 pages, real data only)
-Screenshots captured from the running app: `/home/user/screenshots/`
+Screenshots captured from the running app: `artifacts/ui/` (in-repo, e.g. `desktop-1440_.png`, `phone-390_.png`, `vercel-wrong-origin-diagnosed.png`)
 (`login`, `dashboard`, `jobs`, `job-detail`, `clips`, `clip-detail`, `publishing`, `accounts`,
 `brand`, `settings`, `activity`, `admin`).
 

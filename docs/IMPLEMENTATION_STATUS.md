@@ -124,9 +124,10 @@ Every item below was reproduced first, then fixed, then re-tested. Fixes are com
   errors surfaced), metadata edit (`PATCH`, persisted), job retry (`POST`, 201), download
   (`22 954 423` bytes saved), brand asset upload (`POST /api/brand-assets`, 201), brand profile
   create (`201`), subtitle preset create.
-* Screenshots refreshed in `/home/user/screenshots/` (`login`, `dashboard`, `jobs`, `clips`,
+* Screenshots refreshed in `artifacts/ui/` (`login`, `dashboard`, `jobs`, `clips`,
   `clip-metadata-editor`, `publishing`, `accounts`, `brand`, `settings`, `activity`, `admin`,
-  `member-dashboard`, `member-admin-blocked`, plus `screenshots/audit/**`).
+  `member-dashboard`, `member-admin-blocked`). Generation helpers and test media are regenerable
+  (`scripts/make-testdata.sh`), so they are not kept in the workspace.
 * **LIMITATION:** the clip detail is an inline panel on `/clips`, not a `/clips/[id]` route, so a clip
   cannot be deep-linked or bookmarked individually.
 
