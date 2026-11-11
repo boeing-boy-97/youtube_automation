@@ -399,6 +399,48 @@ build reads `api-target.json` and inlines `https://clipforge-api.onrender.com` i
 `CLIPFORGE_API_TARGET`; a local build ignores the file and inlines `http://127.0.0.1:4000`; the local
 stack still passes UI **165/0** and `firebase_auth` **18/18**.
 
+### Telegram notifications (2026-11-11)
+
+Implemented against the existing lifecycle, then verified at three levels. Nothing in the feature is
+simulated: every event is emitted from the code path that commits the state it describes.
+
+| Level | Suite | Result |
+| --- | --- | --- |
+| Unit (no I/O) | `tests/unit/telegram-notifications.test.ts` | **20/20** — retry schedule (500 → 1000 ms), 429 `retry_after`, permanent-vs-retryable classification, network failure never throws, token redaction, message rendering/escaping/timezone fallback, chat-id masking, env validation |
+| Integration (real PostgreSQL) | `tests/integration/notifications.test.ts` | **19/19** — send + `SENT` row, disabled category, disabled workspace, dedupe via the unique constraint (3 calls → 1 message), retry counting, permanent failure, unreachable endpoint, unconfigured token, no token in any stored row, restart recovery of a `PENDING` row, abandonment of a stale one, status counters, paging/filtering, settings round-trip |
+| Live end-to-end | `tests/e2e/telegram_notifications.py` | **36/36** — real API process, real pipeline + scheduler workers, real job lifecycle, real PostgreSQL/Redis; only `api.telegram.org` is replaced (a local HTTP server that records what would have been sent) |
+
+The end-to-end run covers exactly the seven verification points that were asked for:
+
+1. **Connection** — `getMe` resolved `@clipforge_e2e_bot`; a test message was delivered, logged, and
+   carried the requesting operator and the masked chat id.
+2. **Workflow success path start** — creating a real job (`POST /api/jobs`) produced
+   `WORKFLOW_STARTED` with the execution id; cancelling it produced `WORKFLOW_STOPPED` naming the actor.
+3. **Workflow failure** — a job whose stored source was removed failed inside the pipeline worker and
+   produced `WORKFLOW_FAILED` with code, stage, attempt count and execution id.
+4. **Authentication expiration / quota** — wired to the real `EXPIRED` transitions in
+   `accounts.service.ts`, `scheduler.worker.ts` and the publish worker's `TOKEN_EXPIRED` /
+   `PLATFORM_RATE_LIMITED` classifications (exercised in integration, since faking an expired Google
+   token would require a real OAuth round-trip).
+5. **Duplicate prevention** — one delivery per live event (worker redelivery included); three
+   identical `notify()` calls in integration produced one message and one row.
+6. **Backend restart and recovery** — a `PENDING` row was inserted, the API was killed and restarted,
+   and the row was delivered on boot; history and status survived.
+7. **Frontend closed** — every check ran without a browser; the messages arrived because the backend
+   produced them. The enable toggle suppressed a real workflow event while a manual test still worked.
+
+Regression on the same tree: `npm run verify:structure` **78/0**, `npm run build` **rc 0 (0 TS
+errors)**, `npm run typecheck` **rc 0**, `npm run lint` **rc 0**, `npm run test:unit` **80 passed**,
+`npm run test:integration` **41 passed**.
+
+Two defects were found *by* these tests and fixed before the feature was called done: `redactToken()`
+missed tokens inside a Telegram-style URL (`…/bot<token>/sendMessage`, because `\b` never matches
+after the `t` of `bot`), and the status surface derived "token configured" from the environment rather
+than from the client it actually holds.
+
+Screenshot of the live admin panel (bot identity, masked chat, last delivery, 24-hour counters, the
+category list and the real delivery history): `artifacts/ui/admin-telegram-notifications.png`.
+
 ### Structure, flow and a clean build (2026-11-09)
 
 The tree was audited against `docs/FOLDER-STRUCTURE.md` and then made self-checking. Three real

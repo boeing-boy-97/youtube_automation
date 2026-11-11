@@ -108,6 +108,14 @@ services:
       - key: VIDEO_PROCESSOR_API_KEY
         generateValue: true
 
+      # --- optional: Telegram notifications (docs/TELEGRAM-NOTIFICATIONS.md) ---
+      # Free, no third party. Leave blank to disable; the dashboard then reports the channel as
+      # not configured and everything else keeps working.
+      - key: TELEGRAM_BOT_TOKEN # @BotFather → /newbot → API token
+        sync: false
+      - key: TELEGRAM_CHAT_ID # e.g. -1001234567890 (group) or @channelusername
+        sync: false
+
       # --- optional: Google sign-in (docs/FIREBASE-AUTH.md). Leave unset for password-only. ---
       - key: FIREBASE_PROJECT_ID
         sync: false

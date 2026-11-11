@@ -48,7 +48,7 @@ ALLOWED_ROOT="README.md package.json package-lock.json tsconfig.base.json tsconf
 docker-compose.dev.yml docker-compose.prod.yml render.yaml render.pipeline.yaml
 .env.example .gitignore .dockerignore .bootstrap-token.local
 apps packages services tests infrastructure scripts docs artifacts node_modules
-.next local-storage .git .env"
+.next local-storage .git .env .venv .ruff_cache .pytest_cache"
 unexpected=0
 for entry in $(ls -A); do
   case " $(echo $ALLOWED_ROOT) " in

@@ -132,6 +132,14 @@ screens — and that is enforced by the browser audit rather than by review.
 No cloud deployment is claimed: the compose stack is authored and validated, but this sandbox has
 no Docker daemon, so the verified environment is the local process stack described above.
 
+## Telegram notifications (free)
+
+Automation events — workflow started/stopped/failed, source detected, AI stages, captions ready,
+upload started/completed, expiring auth, quota errors, scheduled runs, a daily summary — can be sent
+to a Telegram chat by a bot you own. Server-side only: the API and the workers emit them, so they
+arrive with the browser closed. Setup is two environment variables; see
+`docs/TELEGRAM-NOTIFICATIONS.md`.
+
 ## Checking that the structure still holds
 
 ```bash

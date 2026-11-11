@@ -15,6 +15,7 @@ import { StorageModule } from './storage/storage.module';
 import { SystemModule } from './system/system.module';
 import { UsageModule } from './usage/usage.module';
 import { WorkspaceModule } from './workspace/workspace.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { PrismaService } from './common/prisma.service';
 
 @Module({
@@ -30,6 +31,7 @@ import { PrismaService } from './common/prisma.service';
     SystemModule,
     UsageModule,
     WorkspaceModule,
+    NotificationsModule,
   ],
   controllers: [MediaController],
   providers: [

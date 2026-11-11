@@ -137,6 +137,10 @@ Rules that keep this honest:
   `recovery.worker.ts` after `JOB_LEASE_SECONDS`, so no job is lost and none runs twice.
 * **Progress is reported, never invented.** If a service is down, the job fails with the reason
   instead of sitting at 90%.
+* **Notifications are emitted, not polled.** Each stage that commits a fact calls
+  `apps/api/src/notifications/notifications.service.ts` (`notify()`), which dedupes on a stable key,
+  persists a `NotificationDelivery` row and sends it with retries — off the stage's critical path, so
+  Telegram being down can never fail a job. See `docs/TELEGRAM-NOTIFICATIONS.md`.
 * **The Python services are stateless.** Files go in and come out; the API is the only writer to
   Postgres, and the only holder of credentials.
 

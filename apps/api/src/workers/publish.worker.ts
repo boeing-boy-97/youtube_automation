@@ -27,12 +27,14 @@ import { StorageService } from '../storage/storage.service';
 import { RedisService } from '../common/services/redis.service';
 import { PublishingService } from '../publishing/publishing.service';
 import { AppConfigService } from '../common/services/config.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { createRuntime, createWorker, wireShutdown } from './base';
 
 const runtime = createRuntime('publish', env.WORKER_CONCURRENCY_PUBLISH);
+const notifications = new NotificationsService();
 const storage = new StorageService();
 const redis = new RedisService();
-const accounts = new AccountsService(redis);
+const accounts = new AccountsService(redis, notifications);
 const appConfig = new AppConfigService();
 const publishingService = new PublishingService(accounts, storage, appConfig);
 
@@ -94,6 +96,20 @@ async function publishOne(publishingJobId: string): Promise<void> {
   });
   const startedAt = Date.now();
 
+  void notifications.notify({
+    workspaceId: publishingJob.workspaceId,
+    category: 'UPLOAD_STARTED',
+    dedupeKey: `publish:${publishingJobId}:upload-started:${attemptNumber}`,
+    summary: `Upload started to ${publishingJob.platform}`,
+    details: [
+      ['Account', publishingJob.connectedAccount.displayName],
+      ['Title', metadata.title ?? metadata.description?.slice(0, 80) ?? '(untitled)'],
+      ['Attempt', attemptNumber],
+    ],
+    jobId: publishingJob.clip.jobId,
+    clipId: publishingJob.clipId,
+  });
+
   try {
     if (publishingJob.platform === 'YOUTUBE') {
       await publishToYouTube(publishingJob, metadata, mediaAsset.storageKey, attemptRow.id);
@@ -126,6 +142,46 @@ async function publishOne(publishingJobId: string): Promise<void> {
     // A failed call still costs a platform request; the record says so.
     await recordPublishCall(publishingJob, attemptRow.id, publishingJob.platform, false);
     await failJob(publishingJobId, code, message, retryable, attemptNumber);
+    if (code === 'PLATFORM_RATE_LIMITED') {
+      void notifications.notify({
+        workspaceId: publishingJob.workspaceId,
+        category: 'QUOTA_ERROR',
+        dedupeKey: `publish:${publishingJobId}:rate-limited:${attemptNumber}`,
+        summary: `${publishingJob.platform} rate limited the upload`,
+        details: [
+          ['Code', code],
+          ['Message', message.slice(0, 300)],
+          ['Retryable', 'yes — it will be retried'],
+        ],
+        clipId: publishingJob.clipId,
+      });
+    } else if (code === 'TOKEN_EXPIRED') {
+      void notifications.notify({
+        workspaceId: publishingJob.workspaceId,
+        category: 'AUTH_EXPIRED',
+        dedupeKey: `account:${publishingJob.connectedAccountId}:expired`,
+        summary: `The ${publishingJob.platform} connection needs to be re-authorised`,
+        details: [
+          ['Account', publishingJob.connectedAccount.displayName],
+          ['Reason', message.slice(0, 300)],
+        ],
+        clipId: publishingJob.clipId,
+      });
+    }
+    if (!retryable) {
+      void notifications.notify({
+        workspaceId: publishingJob.workspaceId,
+        category: 'WORKFLOW_FAILED',
+        dedupeKey: `publish:${publishingJobId}:failed`,
+        summary: `Publishing to ${publishingJob.platform} failed permanently`,
+        details: [
+          ['Code', code],
+          ['Reason', message.slice(0, 400)],
+          ['Attempts', attemptNumber],
+        ],
+        clipId: publishingJob.clipId,
+      });
+    }
     await refreshParentJob(publishingJob.clip.jobId);
     if (!retryable) {
       // Swallow: the failure is recorded; no point retrying in BullMQ.
@@ -388,6 +444,19 @@ async function recordPublished(
     metadata: { externalId: result.externalId },
   });
   runtime.logger.info(`published ${publishingJob.platform} ${result.externalUrl}`);
+  // Emitted after the PUBLISHED row and the PublishedPost row are committed: the URL in the
+  // message is the URL a platform actually returned.
+  void notifications.notify({
+    workspaceId: publishingJob.workspaceId,
+    category: 'PUBLISH_COMPLETED',
+    dedupeKey: `publish:${publishingJob.id}:published`,
+    summary: `Upload to ${publishingJob.platform} completed`,
+    details: [
+      ['URL', result.externalUrl],
+      ['Visibility', result.visibility ?? 'default'],
+    ],
+    clipId: publishingJob.clipId,
+  });
 }
 
 async function failJob(

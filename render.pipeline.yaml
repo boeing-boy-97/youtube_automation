@@ -102,6 +102,11 @@ services:
         value: gemini-2.0-flash
       - key: GEMINI_VISION_MODEL
         value: gemini-2.0-flash
+      # Telegram notifications: the API and the workers each send their own events.
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
       - key: UPLOAD_PART_SIZE_MIB # keep 16 through the API; see DEPLOY-VERCEL.md before lowering
         value: 16
       - key: WORKER_CONCURRENCY_AI
@@ -254,6 +259,16 @@ services:
           name: clipforge-api
           type: web
           envVarKey: GEMINI_VISION_MODEL
+      - key: TELEGRAM_BOT_TOKEN
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: TELEGRAM_BOT_TOKEN
+      - key: TELEGRAM_CHAT_ID
+        fromService:
+          name: clipforge-api
+          type: web
+          envVarKey: TELEGRAM_CHAT_ID
       - key: WORKER_CONCURRENCY_AI
         fromService:
           name: clipforge-api

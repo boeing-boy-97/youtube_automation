@@ -4,6 +4,7 @@ import { useDiagnostics, useIsOperator, useSystemOverview, type DiagnosticSeveri
 import { Badge, Card, CardHeader, ErrorState, Section, Skeleton, StatCard, StatusBadge } from '@/components/ui';
 import { formatRelative } from '@/lib/api';
 import { DeployCheck } from '@/components/deploy-check';
+import { NotificationsPanel } from '@/components/notifications-panel';
 
 /** One colour vocabulary across the app: green = fine, amber = look soon, red = act now. */
 const SEVERITY_TONE: Record<DiagnosticSeverity, 'positive' | 'neutral' | 'caution' | 'danger'> = {
@@ -46,6 +47,8 @@ export default function AdminPage() {
         as="h1" title="System administration" description="Read-only operational view. Values are measured live from the database, Redis and the internal services." />
 
       <DeployCheck />
+
+      <NotificationsPanel />
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <StatCard label="API uptime" value={`${Math.floor(data.uptimeSeconds / 60)}m`} hint={`Since last restart · ${data.timezone}`} />

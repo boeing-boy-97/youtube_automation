@@ -296,6 +296,10 @@ export const CONFIG_KEYS = {
   DUPLICATE_SIMILARITY_THRESHOLD: 'clips.duplicate_similarity_threshold',
   AUDIO_LOUDNESS_TARGET_LUFS: 'audio.loudness_target_lufs',
   CONTENT_LANGUAGES: 'content.languages',
+  NOTIFICATIONS_ENABLED: 'notifications.enabled',
+  NOTIFICATIONS_CHAT_ID: 'notifications.telegram_chat_id',
+  NOTIFICATIONS_CATEGORIES: 'notifications.categories',
+  NOTIFICATIONS_DAILY_SUMMARY_HOUR: 'notifications.daily_summary_hour',
 } as const;
 export type ConfigKey = (typeof CONFIG_KEYS)[keyof typeof CONFIG_KEYS];
 
@@ -370,4 +374,104 @@ export interface JobDetailDto {
   events: JobEventDto[];
   clipCount: number;
   resultSummary?: unknown;
+}
+
+// ------------------------- Telegram notifications -------------------------
+
+/**
+ * The closed set of automation events that can be notified. The value is what the database stores
+ * and what the API accepts; the label and description are what the admin dashboard shows. Keeping
+ * them in one place is what stops the UI, the API and the database from drifting apart.
+ */
+export const NOTIFICATION_CATEGORIES = [
+  'WORKFLOW_STARTED',
+  'SOURCE_DETECTED',
+  'SOURCE_DOWNLOADED',
+  'AI_STARTED',
+  'AI_COMPLETED',
+  'METADATA_COMPLETED',
+  'UPLOAD_STARTED',
+  'PUBLISH_COMPLETED',
+  'WORKFLOW_FAILED',
+  'AUTH_EXPIRED',
+  'QUOTA_ERROR',
+  'SCHEDULED_STARTED',
+  'SCHEDULE_MISSED',
+  'WORKFLOW_STOPPED',
+  'DAILY_SUMMARY',
+  'CONNECTION_TEST',
+] as const;
+
+export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
+
+export type NotificationSeverity = 'info' | 'success' | 'warning' | 'error';
+
+export interface NotificationCategoryMeta {
+  label: string;
+  description: string;
+  severity: NotificationSeverity;
+  /** Categories an operator almost always wants. Used to pre-tick the dashboard and nothing else. */
+  defaultEnabled: boolean;
+}
+
+export const NOTIFICATION_CATEGORY_META: Record<NotificationCategory, NotificationCategoryMeta> = {
+  WORKFLOW_STARTED: { label: 'Workflow started', description: 'A processing job was created and queued', severity: 'info', defaultEnabled: true },
+  SOURCE_DETECTED: { label: 'Video source detected', description: 'The source passed probing (duration, resolution, frame rate)', severity: 'info', defaultEnabled: true },
+  SOURCE_DOWNLOADED: { label: 'Video downloaded', description: 'The source object was fetched into the worker work directory', severity: 'info', defaultEnabled: false },
+  AI_STARTED: { label: 'AI processing started', description: 'Transcription and highlight analysis began', severity: 'info', defaultEnabled: true },
+  AI_COMPLETED: { label: 'AI processing completed', description: 'Transcript and highlight selection finished', severity: 'success', defaultEnabled: true },
+  METADATA_COMPLETED: { label: 'Captions and hashtags ready', description: 'Per-platform titles, captions, hashtags and keywords were generated', severity: 'success', defaultEnabled: true },
+  UPLOAD_STARTED: { label: 'Upload started', description: 'A clip upload to YouTube or Instagram began', severity: 'info', defaultEnabled: false },
+  PUBLISH_COMPLETED: { label: 'Upload completed', description: 'A clip was published and its platform URL is recorded', severity: 'success', defaultEnabled: true },
+  WORKFLOW_FAILED: { label: 'Workflow failed', description: 'A job or publish attempt failed; includes the reason and execution id', severity: 'error', defaultEnabled: true },
+  AUTH_EXPIRED: { label: 'Authentication expired', description: 'A connected platform account needs to be reconnected', severity: 'error', defaultEnabled: true },
+  QUOTA_ERROR: { label: 'Quota or rate limit', description: 'A platform or model API refused a call because of quota or rate limiting', severity: 'warning', defaultEnabled: true },
+  SCHEDULED_STARTED: { label: 'Scheduled publish started', description: 'A scheduled publishing job reached its time and was dispatched', severity: 'info', defaultEnabled: true },
+  SCHEDULE_MISSED: { label: 'Scheduled publish missed', description: 'A scheduled publishing job passed its time without being dispatched', severity: 'warning', defaultEnabled: true },
+  WORKFLOW_STOPPED: { label: 'Workflow stopped', description: 'A job was cancelled manually', severity: 'warning', defaultEnabled: true },
+  DAILY_SUMMARY: { label: 'Daily summary', description: 'One message per day with the previous 24 hours of activity', severity: 'info', defaultEnabled: true },
+  CONNECTION_TEST: { label: 'Connection test', description: 'Test messages requested from the admin dashboard, and the delivery audit row', severity: 'info', defaultEnabled: true },
+};
+
+/** Settings an operator can change from the dashboard. The bot token is deliberately absent: it is
+ *  environment-only, so it can never be read back, rotated by accident, or stored in the database. */
+export interface NotificationSettings {
+  enabled: boolean;
+  chatId: string | null;
+  categories: NotificationCategory[];
+  dailySummaryHour: number;
+}
+
+export interface NotificationStatus {
+  /** TELEGRAM_BOT_TOKEN is present in the environment. */
+  tokenConfigured: boolean;
+  /** A chat id is available (settings override, else TELEGRAM_CHAT_ID). */
+  chatIdConfigured: boolean;
+  chatIdMasked: string | null;
+  /** Settings row from the dashboard. */
+  enabled: boolean;
+  categories: NotificationCategory[];
+  dailySummaryHour: number;
+  /** Live result of getMe, cached briefly. */
+  bot: { reachable: boolean; username: string | null; error: string | null; checkedAt: string | null };
+  lastDeliveryAt: string | null;
+  lastDeliveryCategory: NotificationCategory | null;
+  lastError: string | null;
+  lastErrorAt: string | null;
+  /** Counters over the last 24h, so "is it working?" has a number behind it. */
+  last24h: { sent: number; failed: number; skipped: number };
+  canSend: boolean;
+  blockingReason: string | null;
+}
+
+export interface NotificationDeliveryView {
+  id: string;
+  category: NotificationCategory;
+  status: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED';
+  message: string;
+  jobId: string | null;
+  attempts: number;
+  lastError: string | null;
+  createdAt: string;
+  sentAt: string | null;
 }

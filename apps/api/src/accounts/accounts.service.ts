@@ -13,6 +13,7 @@ import {
 import { randomBytes, createHmac } from 'node:crypto';
 import { env } from '../common/env';
 import { RedisService } from '../common/services/redis.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import type { RequestContext } from '../common/guards/session-auth.guard';
 
 const STATE_TTL_SECONDS = 600;
@@ -30,7 +31,10 @@ export interface OAuthStatePayload {
 export class AccountsService {
   private readonly logger = new Logger(AccountsService.name);
 
-  constructor(private readonly redis: RedisService) {}
+  constructor(
+    private readonly redis: RedisService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   // ------------------------------ connectors ------------------------------
 
@@ -330,6 +334,19 @@ export class AccountsService {
       await prisma.connectedAccount.update({
         where: { id: account.id },
         data: { status: 'EXPIRED', tokenHealth: 'EXPIRED', tokenCheckedAt: new Date(), lastError: message.slice(0, 900) },
+      });
+      // The account row is now EXPIRED: that is the fact being notified, not "a refresh was
+      // attempted". Deduped per account so a retry loop cannot spam the operator.
+      void this.notifications.notify({
+        workspaceId: account.workspaceId,
+        category: 'AUTH_EXPIRED',
+        dedupeKey: `account:${account.id}:expired`,
+        summary: `The ${account.platform} connection expired and could not be refreshed`,
+        details: [
+          ['Account', account.displayName],
+          ['Reason', message.slice(0, 300)],
+          ['Fix', 'Reconnect the account from Accounts'],
+        ],
       });
       await appendAuditLog({
         workspaceId: account.workspaceId,

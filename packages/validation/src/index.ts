@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { NOTIFICATION_CATEGORIES } from '@clipforge/shared-types';
 
 // ------------------------------- primitives -------------------------------
 
@@ -265,4 +266,39 @@ export type CreateJobInput = z.infer<typeof createJobSchema>;
 export type PublishingToggleInput = z.infer<typeof publishingToggleSchema>;
 export type BrandProfileInput = z.infer<typeof brandProfileSchema>;
 export type SubtitlePresetInput = z.infer<typeof subtitlePresetSchema>;
+
+// ------------------------- Telegram notifications -------------------------
+
+/** A Telegram chat id is a signed integer, or an @channelusername. Anything else is rejected here
+ *  rather than at the Telegram API, so the operator gets a field error instead of a 400. */
+const telegramChatIdSchema = z
+  .string()
+  .trim()
+  .min(2)
+  .max(64)
+  .refine((value) => /^-?\d{4,20}$/.test(value) || /^@[A-Za-z0-9_]{5,32}$/.test(value), {
+    message: 'Use a numeric chat id (e.g. -1001234567890) or @channelusername',
+  });
+
+export const notificationSettingsSchema = z.object({
+  enabled: z.boolean(),
+  chatId: telegramChatIdSchema.nullable().optional(),
+  categories: z.array(z.enum(NOTIFICATION_CATEGORIES)).max(NOTIFICATION_CATEGORIES.length).optional(),
+  dailySummaryHour: z.number().int().min(0).max(23).optional(),
+});
+
+export const notificationHistoryQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(1000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  category: z.enum(NOTIFICATION_CATEGORIES).optional(),
+  status: z.enum(['PENDING', 'SENT', 'FAILED', 'SKIPPED']).optional(),
+});
+
+export const notificationTestSchema = z.object({
+  /** Free-text prefix so a test message is recognisably a test. */
+  note: z.string().trim().max(200).optional(),
+});
+
+export type NotificationSettingsInput = z.infer<typeof notificationSettingsSchema>;
+
 export * from './domain';

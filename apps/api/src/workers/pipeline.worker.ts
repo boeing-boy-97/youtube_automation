@@ -15,12 +15,14 @@ import { env } from '../common/env';
 import { AppConfigService } from '../common/services/config.service';
 import { estimateCostUsd } from '../common/services/usage-cost';
 import { StorageService } from '../storage/storage.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { createRuntime, createWorker, wireShutdown, startLeaseRenewal } from './base';
 import { aiEngine, videoProcessor, ServiceCallError } from './services-client';
 
 const runtime = createRuntime('ai', env.WORKER_CONCURRENCY_AI);
 const storage = new StorageService();
 const appConfig = new AppConfigService();
+const notifications = new NotificationsService();
 
 interface JobConfiguration {
   framingMode: 'face_track' | 'center_crop' | 'manual' | 'background_blur';
@@ -89,6 +91,14 @@ async function runPipeline(jobId: string, resumeFrom?: string): Promise<void> {
       });
       if (!job.sourceVideo.storageKey) throw new Error('Source has no stored object');
       await storage.downloadToFile(job.sourceVideo.storageKey, sourcePath);
+      void notifications.notify({
+        workspaceId: job.workspaceId,
+        category: 'SOURCE_DOWNLOADED',
+        dedupeKey: `job:${jobId}:source-downloaded`,
+        summary: 'Source video downloaded to the worker',
+        details: [['Storage key', job.sourceVideo.storageKey]],
+        jobId,
+      });
       const probe = await videoProcessor.probe(sourcePath);
       await prisma.sourceVideo.update({
         where: { id: job.sourceVideoId },
@@ -106,6 +116,18 @@ async function runPipeline(jobId: string, resumeFrom?: string): Promise<void> {
         progressDetail: `Probed ${probe.width}x${probe.height}, ${probe.duration_seconds.toFixed(1)}s`,
         leaseSeconds: env.JOB_LEASE_SECONDS,
       });
+      void notifications.notify({
+        workspaceId: job.workspaceId,
+        category: 'SOURCE_DETECTED',
+        dedupeKey: `job:${jobId}:source-detected`,
+        summary: 'Video source detected and validated',
+        details: [
+          ['Resolution', `${probe.width}×${probe.height}`],
+          ['Duration', `${(probe.duration_seconds / 60).toFixed(1)} min`],
+          ['Frame rate', `${probe.frame_rate} fps`],
+        ],
+        jobId,
+      });
     }
 
     // ----------------------------- TRANSCRIBING ------------------------------
@@ -115,6 +137,14 @@ async function runPipeline(jobId: string, resumeFrom?: string): Promise<void> {
     });
     if (!transcript) {
       await ensureStatus(jobId, 'TRANSCRIBING');
+      void notifications.notify({
+        workspaceId: job.workspaceId,
+        category: 'AI_STARTED',
+        dedupeKey: `job:${jobId}:ai-started`,
+        summary: 'AI processing started (transcription)',
+        details: [['Model', liveConfig.aiTextModel], ['Language', configuration.subtitleLanguage]],
+        jobId,
+      });
       const result = await aiEngine.transcribe({
         job_id: jobId,
         video_path: sourcePath,
@@ -288,6 +318,19 @@ async function runPipeline(jobId: string, resumeFrom?: string): Promise<void> {
       });
     }
 
+    void notifications.notify({
+      workspaceId: job.workspaceId,
+      category: 'AI_COMPLETED',
+      dedupeKey: `job:${jobId}:ai-completed`,
+      summary: 'AI processing completed: transcript and highlight analysis are stored',
+      details: [
+        ['Highlights found', analysis.plan.length],
+        ['Vision calls', usage?.vision?.calls ?? 0],
+        ['Text tokens', textTokens],
+      ],
+      jobId,
+    });
+
     // ----------------------------- CLIP_SELECTION -----------------------------
     await ensureStatus(jobId, 'CLIP_SELECTION');
     await prisma.highlightCandidate.deleteMany({ where: { jobId } });
@@ -338,6 +381,7 @@ async function runPipeline(jobId: string, resumeFrom?: string): Promise<void> {
     });
 
     const clipIds: string[] = [];
+    let metadataFailures = 0;
     for (const [index, entry] of analysis.plan.entries()) {
       const candidate = entry.candidate as unknown as {
         start_time: number;
@@ -424,7 +468,28 @@ async function runPipeline(jobId: string, resumeFrom?: string): Promise<void> {
         });
       } else {
         runtime.logger.warn(`caption generation failed for clip ${clip.id}: ${metadata?.error ?? 'unknown'}`);
+        metadataFailures += 1;
       }
+    }
+
+    // Only claim captions are ready if they actually are: a partially failed caption call is
+    // reported as such rather than as success.
+    if (clipIds.length > 0) {
+      void notifications.notify({
+        workspaceId: job.workspaceId,
+        category: 'METADATA_COMPLETED',
+        dedupeKey: `job:${jobId}:metadata-completed`,
+        summary:
+          metadataFailures === 0
+            ? `Captions and hashtags generated for ${clipIds.length} clip(s)`
+            : `Captions generated for ${clipIds.length - metadataFailures} of ${clipIds.length} clip(s)`,
+        details: [
+          ['Clips', clipIds.length],
+          ['Failed', metadataFailures],
+          ['Platforms', configuration.platforms.join(', ') || 'none selected'],
+        ],
+        jobId,
+      });
     }
 
     // ------------------------------- RENDERING --------------------------------
@@ -459,6 +524,37 @@ async function runPipeline(jobId: string, resumeFrom?: string): Promise<void> {
     const attempt = job.attempt;
     const exhausted = !retryable || attempt >= job.maxAttempts;
 
+    // Two different facts, two different messages: a quota refusal is actionable by the operator
+    // (top up, raise limits) while a permanent failure needs someone to look at the job.
+    if (/QUOTA|RATE_LIMIT|429|RESOURCE_EXHAUSTED/i.test(`${serviceError?.code ?? ''} ${message}`)) {
+      void notifications.notify({
+        workspaceId: job.workspaceId,
+        category: 'QUOTA_ERROR',
+        dedupeKey: `job:${jobId}:quota:${job.stage}:${attempt}`,
+        summary: `API quota or rate limit reached during ${job.stage}`,
+        details: [
+          ['Service', serviceError?.service ?? 'pipeline'],
+          ['Code', serviceError?.code ?? 'unknown'],
+          ['Message', message.slice(0, 300)],
+        ],
+        jobId,
+      });
+    }
+    if (exhausted) {
+      void notifications.notify({
+        workspaceId: job.workspaceId,
+        category: 'WORKFLOW_FAILED',
+        dedupeKey: `job:${jobId}:failed`,
+        summary: `Workflow failed at ${job.stage}`,
+        details: [
+          ['Code', serviceError?.code ?? 'PIPELINE_ERROR'],
+          ['Reason', message.slice(0, 400)],
+          ['Attempts', `${attempt} of ${job.maxAttempts}`],
+          ['Retryable', retryable ? 'yes' : 'no — needs a human'],
+        ],
+        jobId,
+      });
+    }
     await transitionJob(jobId, exhausted ? 'FAILED' : 'RETRYING', {
       errorCode: serviceError?.code ?? 'PIPELINE_ERROR',
       errorMessage: message.slice(0, 1800),

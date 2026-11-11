@@ -382,3 +382,100 @@ export function useDiagnostics(enabled = true) {
     retry: false,
   });
 }
+
+// ---------------------------- Telegram notifications ----------------------------
+
+export interface NotificationStatusView {
+  tokenConfigured: boolean;
+  chatIdConfigured: boolean;
+  chatIdMasked: string | null;
+  enabled: boolean;
+  categories: string[];
+  dailySummaryHour: number;
+  bot: { reachable: boolean; username: string | null; error: string | null; checkedAt: string | null };
+  lastDeliveryAt: string | null;
+  lastDeliveryCategory: string | null;
+  lastError: string | null;
+  lastErrorAt: string | null;
+  last24h: { sent: number; failed: number; skipped: number };
+  canSend: boolean;
+  blockingReason: string | null;
+}
+
+export interface NotificationCategoryOption {
+  value: string;
+  label: string;
+  description: string;
+  severity: 'info' | 'success' | 'warning' | 'error';
+  defaultEnabled: boolean;
+}
+
+export interface NotificationDeliveryRow {
+  id: string;
+  category: string;
+  status: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED';
+  message: string;
+  jobId: string | null;
+  attempts: number;
+  lastError: string | null;
+  createdAt: string;
+  sentAt: string | null;
+}
+
+/** Status is polled slowly: a notification channel does not need sub-second freshness. */
+export function useNotificationStatus(enabled = true) {
+  return useQuery({
+    queryKey: ['notifications', 'status'],
+    queryFn: () => api<NotificationStatusView>('/api/notifications/status'),
+    refetchInterval: 30_000,
+    enabled,
+    retry: false,
+  });
+}
+
+export function useNotificationCategories(enabled = true) {
+  return useQuery({
+    queryKey: ['notifications', 'categories'],
+    queryFn: () => api<{ categories: NotificationCategoryOption[] }>('/api/notifications/categories'),
+    staleTime: 5 * 60_000,
+    enabled,
+    retry: false,
+  });
+}
+
+export function useNotificationHistory(enabled = true, pageSize = 15) {
+  return useQuery({
+    queryKey: ['notifications', 'history', pageSize],
+    queryFn: () =>
+      api<{ items: NotificationDeliveryRow[]; total: number; page: number; pageSize: number }>(
+        `/api/notifications/history?page=1&pageSize=${pageSize}`,
+      ),
+    enabled,
+    retry: false,
+  });
+}
+
+export function useUpdateNotificationSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { enabled: boolean; chatId?: string | null; categories?: string[]; dailySummaryHour?: number }) =>
+      api<unknown>('/api/notifications/settings', { method: 'PUT', body }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    },
+  });
+}
+
+export function useSendTestNotification() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (note?: string) =>
+      api<{ delivered: boolean; error: string | null; attempts: number; chatIdMasked: string | null }>(
+        '/api/notifications/test',
+        { method: 'POST', body: { note } },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    },
+  });
+}

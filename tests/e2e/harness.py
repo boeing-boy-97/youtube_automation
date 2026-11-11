@@ -61,6 +61,9 @@ class Client:
     def post(self, path: str, body=None, csrf: bool = True):
         return self.request("POST", path, body if body is not None else {}, csrf=csrf)
 
+    def put(self, path: str, body=None, csrf: bool = True):
+        return self.request("PUT", path, body if body is not None else {}, csrf=csrf)
+
     def refresh_csrf(self) -> None:
         """Authenticated requests use the token bound to the session, not the anonymous one.
 
@@ -86,7 +89,9 @@ class Client:
 
 def sql(statement: str) -> str:
     """Run SQL through psql. Test-only: statements are built from UUIDs this file generated."""
-    proc = subprocess.run(["psql", DATABASE_URL, "-t", "-A", "-c", statement], capture_output=True, text=True, check=False)
+    # psql does not understand Prisma's "?schema=public" query parameter; strip it.
+    dsn = DATABASE_URL.split("?")[0]
+    proc = subprocess.run(["psql", dsn, "-t", "-A", "-c", statement], capture_output=True, text=True, check=False)
     if proc.returncode != 0:
         raise RuntimeError(f"psql failed: {proc.stderr[-400:]}")
     return proc.stdout.strip()
@@ -137,6 +142,13 @@ class Results:
         self.items.append({"name": name, "ok": ok, "detail": detail})
         print(f"[{'PASS' if ok else 'FAIL'}] {name}: {detail}", flush=True)
         return ok
+
+    # Short aliases: a checker reads better as results.check(...) than results.record(...).
+    def check(self, name: str, ok: bool, detail: str = "") -> bool:
+        return self.record(name, ok, detail)
+
+    def report(self) -> int:
+        return self.summary()
 
     def summary(self) -> int:
         failed = [item for item in self.items if not item["ok"]]

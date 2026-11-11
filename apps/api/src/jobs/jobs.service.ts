@@ -13,13 +13,17 @@ import { PIPELINE_STATES, type JobState } from '@clipforge/shared-types';
 // Concrete pipeline stages a retry may resume from (the array type is the full union).
 const PIPELINE_STAGES: readonly JobState[] = PIPELINE_STATES;
 import { AppConfigService } from '../common/services/config.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import type { RequestContext } from '../common/guards/session-auth.guard';
 
 @Injectable()
 export class JobsService {
   private readonly logger = new Logger(JobsService.name);
 
-  constructor(private readonly config: AppConfigService) {}
+  constructor(
+    private readonly config: AppConfigService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   async create(input: CreateJobInput, ctx: RequestContext) {
     const source = await prisma.sourceVideo.findFirst({
@@ -106,6 +110,21 @@ export class JobsService {
         payload: { jobId: created.id },
       });
       return created;
+    });
+
+    // Emitted only after the job row and its outbox intent are committed: the notification must
+    // describe a fact, not an intention.
+    void this.notifications.notify({
+      workspaceId: ctx.workspaceId,
+      category: 'WORKFLOW_STARTED',
+      dedupeKey: `job:${job.id}:started`,
+      summary: `Workflow queued for ${source.originalFileName ?? 'source video'}`,
+      details: [
+        ['Source', source.originalFileName ?? source.id],
+        ['Clips requested', input.configuration.maxClips],
+        ['Requested by', ctx.email],
+      ],
+      jobId: job.id,
     });
 
     await appendAuditLog({
@@ -237,6 +256,18 @@ export class JobsService {
       throw error;
     }
     await prisma.jobStage.updateMany({ where: { jobId: id, status: 'RUNNING' }, data: { status: 'CANCELLED', finishedAt: new Date() } });
+    void this.notifications.notify({
+      workspaceId: ctx.workspaceId,
+      category: 'WORKFLOW_STOPPED',
+      dedupeKey: `job:${id}:stopped`,
+      summary: `Workflow stopped by ${ctx.email}`,
+      details: [
+        ['Stopped at stage', job.status],
+        ['Progress', `${job.progressPercent ?? 0}%`],
+      ],
+      jobId: id,
+    });
+
     await appendAuditLog({
       workspaceId: ctx.workspaceId,
       userId: ctx.userId,

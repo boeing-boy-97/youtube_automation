@@ -3,6 +3,12 @@ import { PrismaService } from '../common/prisma.service';
 import { AppConfigService } from '../common/services/config.service';
 import { JobsController } from './jobs.controller';
 import { JobsService } from './jobs.service';
+import { NotificationsModule } from '../notifications/notifications.module';
 
-@Module({ controllers: [JobsController], providers: [JobsService, PrismaService, AppConfigService], exports: [JobsService] })
+@Module({
+  imports: [NotificationsModule],
+  controllers: [JobsController],
+  providers: [JobsService, PrismaService, AppConfigService],
+  exports: [JobsService],
+})
 export class JobsModule {}

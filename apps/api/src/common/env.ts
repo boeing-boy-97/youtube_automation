@@ -62,6 +62,24 @@ export const envSchema = z.object({
   FIREBASE_ALLOW_NEW_USERS: bool.default('false'),
   FIREBASE_REQUIRE_VERIFIED_EMAIL: bool.default('true'),
 
+  // ------------------------- Telegram notifications -------------------------
+  // Optional: absent values disable notifications without touching any other feature. The token is
+  // environment-only by design — it is never written to the database and never returned to a
+  // browser, so an admin cannot leak it by taking a screenshot of the settings page.
+  TELEGRAM_BOT_TOKEN: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) => (value && value.length > 0 ? value : undefined)),
+  TELEGRAM_CHAT_ID: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) => (value && value.length > 0 ? value : undefined)),
+  TELEGRAM_API_BASE: z.string().url().default('https://api.telegram.org'),
+  TELEGRAM_TIMEOUT_MS: z.coerce.number().int().min(500).max(30_000).default(5_000),
+  TELEGRAM_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(6).default(3),
+
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_TEXT_MODEL: z.string().optional(),
   GEMINI_VISION_MODEL: z.string().optional(),
@@ -121,6 +139,16 @@ export function loadEnv(): AppEnv {
   }
   if (hasClientEmail && hasPrivateKey && !env.FIREBASE_PROJECT_ID) {
     throw new Error('Firebase Auth has credentials but no FIREBASE_PROJECT_ID — add the project id (Firebase console → Project settings).');
+  }
+  // Validate the Telegram configuration at boot rather than at the first failed notification:
+  // a malformed token is a deploy-time mistake, and the operator should see it in the boot log.
+  if (env.TELEGRAM_BOT_TOKEN && !/^\d{5,}:[A-Za-z0-9_-]{30,}$/.test(env.TELEGRAM_BOT_TOKEN)) {
+    throw new Error(
+      'TELEGRAM_BOT_TOKEN is malformed: it must look like "<bot id>:<35+ character secret>" — copy it from BotFather (@BotFather → /mybots → API Token).',
+    );
+  }
+  if (env.TELEGRAM_CHAT_ID && !/^-?\d{4,20}$/.test(env.TELEGRAM_CHAT_ID) && !/^@[A-Za-z0-9_]{5,32}$/.test(env.TELEGRAM_CHAT_ID)) {
+    throw new Error('TELEGRAM_CHAT_ID is malformed: use a numeric chat id (e.g. -1001234567890) or @channelusername.');
   }
   if (env.STORAGE_DRIVER === 's3' && (!env.S3_BUCKET || !env.S3_ACCESS_KEY_ID || !env.S3_SECRET_ACCESS_KEY || !env.S3_REGION)) {
     throw new Error('STORAGE_DRIVER=s3 requires S3_BUCKET, S3_REGION, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY');

@@ -164,6 +164,9 @@ enum AuditAction {
   RIGHTS_DECLARED
   BRAND_PROFILE_CREATED
   BRAND_ASSET_UPLOADED
+  NOTIFICATION_SETTINGS_CHANGED
+  NOTIFICATION_SENT
+  NOTIFICATION_FAILED
 }
 
 enum Visibility {
@@ -242,6 +245,7 @@ model Workspace {
   configurations   ApplicationConfiguration[]
   webhookEvents    WebhookEvent[]
   healthEvents     SystemHealthEvent[]
+  notifications    NotificationDelivery[]
 }
 
 model WorkspaceMember {
@@ -849,4 +853,67 @@ model OutboxEvent {
   createdAt     DateTime  @default(now())
 
   @@index([publishedAt, availableAt])
+}
+
+/// Notification categories are a closed set: the dashboard renders exactly these, and the API
+/// rejects anything else. Adding a category is a migration, on purpose — an open-ended string
+/// column would let a typo silently create a channel nobody ever reads.
+enum NotificationCategory {
+  WORKFLOW_STARTED
+  SOURCE_DETECTED
+  SOURCE_DOWNLOADED
+  AI_STARTED
+  AI_COMPLETED
+  METADATA_COMPLETED
+  UPLOAD_STARTED
+  PUBLISH_COMPLETED
+  WORKFLOW_FAILED
+  AUTH_EXPIRED
+  QUOTA_ERROR
+  SCHEDULED_STARTED
+  SCHEDULE_MISSED
+  WORKFLOW_STOPPED
+  DAILY_SUMMARY
+  CONNECTION_TEST
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+/// One row per notification the backend decided to send.
+///
+/// The unique (workspaceId, dedupeKey) pair is what makes delivery at-most-once: the row is
+/// inserted *before* Telegram is called, so a worker retry, a redelivered queue message or a
+/// process restart finds the key taken and does not send again. The row is also the delivery log
+/// the admin dashboard reads, so nothing has to be reconstructed from stdout.
+model NotificationDelivery {
+  id          String               @id @default(uuid()) @db.Uuid
+  workspaceId String               @db.Uuid
+  category    NotificationCategory
+  status      NotificationStatus   @default(PENDING)
+  /// Stable identity of the *event*, e.g. "job:<uuid>:started". Unique per workspace.
+  dedupeKey   String
+  message     String
+  jobId       String?              @db.Uuid
+  clipId      String?              @db.Uuid
+  /// How many HTTP attempts have been made. Persisted so a restart does not reset the budget.
+  attempts    Int                  @default(0)
+  lastError   String?
+  /// Telegram's message id, when the send succeeded.
+  telegramMessageId Int?
+  /// Last four characters of the chat id — enough to tell two chats apart, useless as a credential.
+  chatIdSuffix String?
+  nextAttemptAt DateTime?
+  createdAt   DateTime             @default(now())
+  sentAt      DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, dedupeKey])
+  @@index([workspaceId, createdAt])
+  @@index([status, nextAttemptAt])
 }

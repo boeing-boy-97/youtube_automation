@@ -51,6 +51,11 @@ dashboard summary.
 
 Run:
 
+Telegram notifications have all three layers: `tests/unit/telegram-notifications.test.ts` (retry
+schedule, redaction, rendering — no I/O), `tests/integration/notifications.test.ts` (real PostgreSQL,
+fake Bot API over HTTP), and `tests/e2e/telegram_notifications.py` (real API process and workers,
+36 checks including restart recovery and duplicate suppression on a live event).
+
 ```bash
 .venv/bin/python tests/e2e/full_workflow.py /home/user/testdata/light-source.mp4
 ```
@@ -66,6 +71,11 @@ configuration gate, the full pipeline, render quality, HTTP Range, duplicate sub
 cancellation, retry rules, per-platform metadata, publishing eligibility, usage costs, the
 authorization matrix and durability across a worker restart. Every scenario runs inside a guard, so
 one failure is reported and the rest still run; the exit code is `0` only when all of them pass.
+
+Telegram notifications have all three layers: `tests/unit/telegram-notifications.test.ts` (retry
+schedule, redaction, rendering — no I/O), `tests/integration/notifications.test.ts` (real PostgreSQL,
+fake Bot API over HTTP), and `tests/e2e/telegram_notifications.py` (real API process and workers,
+36 checks including restart recovery and duplicate suppression on a live event).
 
 ```bash
 .venv/bin/python tests/e2e/scenarios.py /home/user/testdata/light-source.mp4
