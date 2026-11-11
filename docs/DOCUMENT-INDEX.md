@@ -17,6 +17,12 @@ grouped by intent — use that one if you are browsing, this one if you know the
 | [DEPLOY-VERCEL.md](DEPLOY-VERCEL.md) | how do I put the dashboard on Vercel and the API on Render, and why is that the split? |
 | [OPERATIONS.md](OPERATIONS.md) | how do I run, back up, restore and troubleshoot the deployed system? |
 | [ADD-API-KEYS.md](ADD-API-KEYS.md) | how do I turn on Gemini / YouTube / Instagram later without touching code? |
+| [ARCHITECTURE_REPORT.md](ARCHITECTURE_REPORT.md) | how is the system put together, what does each layer own, and what is broken? |
+| [FRONTEND_AUDIT.md](FRONTEND_AUDIT.md) | what does every page actually do, which states are missing, and is any backend logic in the browser? |
+| [BACKEND_AUDIT.md](BACKEND_AUDIT.md) | what does every module/worker/route own, and which backend findings are open? |
+| [SECURITY_AUDIT.md](SECURITY_AUDIT.md) | which controls are verified, which findings are open, and in what order will they be fixed? |
+| [API_CONNECTION_AUDIT.md](API_CONNECTION_AUDIT.md) | which feature reaches which endpoint, what is verified, and what has no caller? |
+| [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | what will be fixed in which order, and what is deliberately not being faked? |
 | [AUTH-SECURITY.md](AUTH-SECURITY.md) | how do I turn on two-step verification, recover a lost password, link Telegram for codes, and see or revoke my signed-in devices? |
 | [UPGRADE-PLAN.md](UPGRADE-PLAN.md) | which of the 17 upgrade modules are done, which are partial, which are not started — and why? |
 | [TELEGRAM-NOTIFICATIONS.md](TELEGRAM-NOTIFICATIONS.md) | how do I turn on free Telegram notifications, which events are covered, and how are duplicates and retries handled? |
